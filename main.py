@@ -11,7 +11,7 @@ connected_devices = {}
 
 @app.get("/")
 def read_root():
-    return {"Hello": "World"}
+    return {"Server": "It works!"}
 
 @app.post("/update")
 def update_device(device: Device):
