@@ -1,51 +1,67 @@
-from fastapi import FastAPI
-from asyncio_mqtt import Client
+from fastapi import FastAPI, HTTPException, Query
+from asyncio_mqtt import Client, MqttError
 import asyncio
-from datetime import datetime
 from pydantic import BaseModel
-from typing import List
+from typing import Dict
+
 app = FastAPI()
 
-mqqt_client = Client("localhost")
+mqtt_client = Client("localhost", port=1883)
 
 class Device(BaseModel):
     device_id: str
     ip: str
     status: str
-    modules: List[str]
 
-
-connected_devices = {}
+# Słownik urządzeń podłączonych, klucz = device_id
+connected_devices: Dict[str, Device] = {}
 
 @app.get("/")
 def read_root():
     return {"Server": "It works!"}
-
-@app.post("/update")
-def update_device(device: Device):
-    connected_devices[device.device_id] = {
-        "ip": device.ip,
-        "last_seen": datetime.utcnow()
-    }
-    return {"status": "ok"}
 
 @app.get("/devices")
 def list_devices():
     return connected_devices
 
 @app.on_event("startup")
-async def start_mqtt():
+async def startup_event():
+    # Uruchom listener MQTT
     asyncio.create_task(mqtt_listener())
 
 async def mqtt_listener():
-    async with mqtt_client as client:
-        await client.subscribe("devices/#")
-        async with client.unfiltered_messages() as messages:
-            async for msg in messages:
-                print(f"{msg.topic} -> {msg.payload.decode()}")
+    while True:
+        async with mqtt_client as client:
+            # Subskrybujemy wszystkie wiadomości od urządzeń
+            await client.subscribe("devices/+/status")
+            async with client.unfiltered_messages() as messages:
+                async for msg in messages:
+                    payload = msg.payload.decode()
+                    topic_parts = msg.topic.split("/")
+                    if len(topic_parts) == 3:
+                        device_id = topic_parts[1]
+                        # Zakładamy, że payload = "ip,status" np. "192.168.1.10,online"
+                        try:
+                            ip, status = payload.split(",")
+                        except ValueError:
+                            ip, status = "unknown", "unknown"
+                        connected_devices[device_id] = Device(
+                            device_id=device_id,
+                            ip=ip,
+                            status=status
+                        )
+                    print(f"Updated {device_id}: {payload}")
 
-@app.post("/command/{device_id}")
-async def command(device_id: str, command: str):
-    topic = f"devices/{device_id}/cmd"
-    await mqtt_client.publish(topic, command.encode())
-    return {"sent": command, "to": device_id}
+@app.get("devices/chain/")
+async def chain(
+    src_device_id: str = Query(...),
+    dst_device_id: str = Query(...),
+    cmd: str = Query(...)
+):
+    topic = f"/devices/chain/{dst_device_id}"
+    try:
+        await mqtt_client.publish(topic, cmd.encode())
+        return {"status": "ok", "topic": topic, "cmd": cmd}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
