@@ -1,6 +1,3 @@
-
-version: "3.8"
-
 services:
   # --- Mosquitto broker MQTT ---
   mosquitto:
@@ -14,16 +11,27 @@ services:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
+    networks:
+      - app-network
 
-  # --- FastAPI serwer ---
-  fastapi:
+  # --- Flask server ---
+  flask:
     build: .
-    container_name: fastapi-server
+    container_name: flask-server
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "5000:5000"
     depends_on:
       - mosquitto
     volumes:
       - .:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - MQTT_HOST=mosquitto
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
