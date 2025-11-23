@@ -17,7 +17,7 @@ const getChargeColor = (level) => {
   return "success";
 };
 
-const DeviceItem = ({ deviceId, data, onToggleSelect }) => {
+const DeviceItem = ({ deviceId, data, onToggleSelect, onToggleStatus }) => {
   const isOperational = data.status;
   
   return (
@@ -58,7 +58,17 @@ const DeviceItem = ({ deviceId, data, onToggleSelect }) => {
               size="small"
             />
           }
-          label={<Typography variant="body2" color="text.secondary">Select for use</Typography>}
+          label={<Typography variant="body2" color="text.secondary">Select for use in session</Typography>}
+        />
+        <FormControlLabel
+          control={
+            <Checkbox 
+              checked={data.status || false} 
+              onChange={(e) => onToggleStatus(deviceId, e.target.checked)}
+              size="small"
+            />
+          }
+          label={<Typography variant="body2" color="text.secondary">ON/OFF</Typography>}
         />
 
         <Box mt={1} display="flex" alignItems="center" gap={2}>

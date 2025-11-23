@@ -15,7 +15,7 @@ device_data: Dict[str, Dict[str, Any]] = {}
 selected_devices: Set[str] = set()
 session_active: bool = False
 mqtt_client: mqtt.Client = None
-main_event_loop = None  # Uchwyt do pętli zdarzeń, aby wywołać async z wątku MQTT
+main_event_loop = None
 
 # --- Menedżer połączeń WebSocket ---
 class ConnectionManager:
@@ -31,7 +31,6 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        # Wysyłamy wiadomość do wszystkich podłączonych klientów
         for connection in self.active_connections[:]:
             try:
                 await connection.send_json(message)
@@ -52,9 +51,11 @@ def on_message(client, userdata, msg):
         topic = msg.topic
         device_id = topic.split("/")[0]
         payload = json.loads(msg.payload.decode())
-
+        
         device_status = payload.get("status", False)
         charge_level = payload.get("charge_level", 0)
+        actuators = payload.get("actuators", []) 
+        emitters = payload.get("emitters", [])
 
         # Logika dodawania urządzeń
         if device_id not in device_data:
@@ -66,12 +67,11 @@ def on_message(client, userdata, msg):
             "last_updated": datetime.now().isoformat(),
             "topic": topic,
             "selected": device_id in selected_devices,
+            "actuators": actuators, 
+            "emitters": emitters    
         }
 
-        operational = "operational" if device_status else "not operational"
-        print(f"Updated device {device_id}: {operational}, charge={charge_level}%")
-
-        # Emitowanie przez WebSocket (most sync -> async)
+        # Emitowanie przez WebSocket
         if main_event_loop and manager.active_connections:
             message = {
                 "event": "device_update",
@@ -83,6 +83,31 @@ def on_message(client, userdata, msg):
         print(f"Failed to decode JSON from topic {msg.topic}: {msg.payload}")
     except Exception as e:
         print(f"Error processing message: {e}")
+
+def publish_device_command(device_id: str, command: str, value: Any):
+    """Publikuje komendę do urządzenia przez MQTT"""
+    if mqtt_client is None:
+        print(f"MQTT client not initialized, cannot send command to {device_id}")
+        return False
+    
+    try:
+        topic = f"{device_id}/command"
+        payload = json.dumps({
+            "command": command,
+            "value": value,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        result = mqtt_client.publish(topic, payload)
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(f"Published command to {topic}: {command}={value}")
+            return True
+        else:
+            print(f"Failed to publish command to {topic}, rc={result.rc}")
+            return False
+    except Exception as e:
+        print(f"Error publishing command to {device_id}: {e}")
+        return False
 
 def init_mqtt():
     global mqtt_client
@@ -129,7 +154,6 @@ async def cleanup_old_devices_task():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start-up
     global main_event_loop
     main_event_loop = asyncio.get_running_loop()
     
@@ -138,7 +162,6 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Shut-down
     if mqtt_client:
         mqtt_client.loop_stop()
     cleanup_task.cancel()
@@ -146,10 +169,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# CORS - Bardzo ważne dla Reacta (localhost:5173 -> localhost:5000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # W produkcji warto to ograniczyć do domeny frontendu
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -169,7 +191,6 @@ async def get_selected_devices():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    # 1. DEKLARACJA GLOBAL NA SAMYM POCZĄTKU
     global session_active 
     
     await manager.connect(websocket)
@@ -177,7 +198,6 @@ async def websocket_endpoint(websocket: WebSocket):
     print(f"Client connected: {client_id}")
     
     try:
-        # Stan początkowy
         await websocket.send_json({
             "event": "connection_confirmed",
             "data": {"status": "connected", "server_time": datetime.now().isoformat()}
@@ -187,8 +207,6 @@ async def websocket_endpoint(websocket: WebSocket):
             "data": device_data
         })
         
-        # Odtworzenie stanu sesji dla nowego klienta
-        # TERAZ TO ZADZIAŁA, BO 'session_active' JEST JUŻ ZADEKLAROWANE JAKO GLOBAL
         await websocket.send_json({
             "event": "session_status",
             "data": {"active": session_active, "action": "status_check"}
@@ -213,8 +231,23 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 print(f"Device {device_id} {'selected' if is_selected else 'deselected'}")
                 
+            elif event_type == "device_status_change":
+                device_id = payload.get("device_id")
+                new_status = payload.get("status", False)
+                
+                device_data[device_id]["status"] = new_status
+                # Publikujemy komendę przez MQTT
+                success = publish_device_command(device_id, "set_status", new_status)
+                
+                if success:
+                    print(f"Sent status command to {device_id}: {'ON' if new_status else 'OFF'}")
+                else:
+                    print(f"Failed to send status command to {device_id}")
+                
+                # Opcjonalnie: możemy zaktualizować lokalny stan
+                # ale lepiej poczekać na potwierdzenie z urządzenia przez status topic
+                
             elif event_type == "start_session":
-                # TU USUNELIŚMY 'global session_active', BO JEST JUŻ NA GÓRZE
                 session_active = True
                 print("Session started")
                 await manager.broadcast({
@@ -223,7 +256,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
             elif event_type == "stop_session":
-                # TU TEŻ NIE POTRZEBA PONOWNEJ DEKLARACJI
                 session_active = False
                 print("Session stopped")
                 await manager.broadcast({

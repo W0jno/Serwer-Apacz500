@@ -28,10 +28,7 @@ import {
 import DeviceItem from '../components/DeviceItem.jsx'
 import Header from '../components/Header.jsx'
 
-// Formatowanie czasu dla logów
 const getTimestamp = () => new Date().toLocaleTimeString();
-
-// --- Main Application Component ---
 
 export default function App() {
   const [socket, setSocket] = useState(null);
@@ -40,22 +37,18 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // Ref do automatycznego scrollowania logów
   const logEndRef = useRef(null);
 
-  // Funkcja dodawania logów
   const addLog = useCallback((message) => {
     setLogs((prev) => [...prev, { time: getTimestamp(), message }]);
   }, []);
 
-  // Automatyczny scroll do dołu logów
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
   // --- WebSocket Connection Logic ---
   useEffect(() => {
-    // Używamy natywnego WebSocket zgodnie z backendem FastAPI
     const wsUrl = `ws://${window.location.hostname}:5000/ws`;
     const ws = new WebSocket(wsUrl);
 
@@ -98,7 +91,6 @@ export default function App() {
               [data.device_id]: data.data
             }));
             const status = data.data.status ? true : false;
-            // Opcjonalnie: odkomentuj jeśli chcesz logować każdą aktualizację (może spamować)
             addLog(`${data.device_id}: ${status}, ${data.data.charge_level}%`);
             break;
 
@@ -146,6 +138,23 @@ export default function App() {
     }
   };
 
+  const handleDeviceStatus = (deviceId, newStatus) => {
+    if (socket && isConnected) {
+      // Poprawiona nazwa eventu i struktura danych
+      socket.send(JSON.stringify({
+        event: "device_status_change",
+        data: { device_id: deviceId, status: newStatus }
+      }));
+      
+      addLog(`Sending status command to ${deviceId}: ${newStatus ? 'ON' : 'OFF'}`);
+      
+      setDevices(prev => ({
+        ...prev,
+        [deviceId]: { ...prev[deviceId], status: newStatus }
+      }));
+    }
+  };
+
   const handleSessionAction = (action) => {
     if (socket && isConnected) {
       socket.send(JSON.stringify({
@@ -158,9 +167,8 @@ export default function App() {
   return (
     <Box sx={{ flexGrow: 1, height: '100vh', width:'100vw', display: 'flex', flexDirection: 'column', bgcolor: '#f5f5f5' }}>
       
-      {/* Header */}
       <Header isConnected={isConnected}></Header>
-      {/* Main Content */}
+      
       <Container maxWidth={false} sx={{ flexGrow: 1, py: 2, overflow: 'hidden' }}>
         <Grid container spacing={2} sx={{ height: '100%', width:'100%' }}>
           
@@ -189,6 +197,7 @@ export default function App() {
                       deviceId={deviceId} 
                       data={devices[deviceId]} 
                       onToggleSelect={handleDeviceSelect}
+                      onToggleStatus={handleDeviceStatus}
                     />
                   ))
                 )}
