@@ -3,6 +3,7 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: mosquitto
+    user: "${UID:-1000}:${GID:-1000}"
     restart: unless-stopped
     ports:
       - "1883:1883"
