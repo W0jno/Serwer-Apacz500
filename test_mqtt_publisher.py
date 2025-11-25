@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Mock MQTT publisher for testing device status dashboard.
-Publishes fake device status messages to simulate real IoT devices.
+Publishes fake device status messages including hardware capabilities (actuators/emitters).
 """
 
 import json
@@ -13,6 +13,16 @@ from datetime import datetime
 
 import paho.mqtt.client as mqtt
 
+# --- BAZA MOŻLIWYCH KOMPONENTÓW ---
+POSSIBLE_ACTUATORS = [
+    "Button_Main", "Button_Reset", "Switch_A", "Switch_B", 
+    "Proximity_Sensor", "Reed_Switch", "Touch_Panel"
+]
+
+POSSIBLE_EMITTERS = [
+    "Green_LED", "Red_LED", "Blue_LED", "Buzzer", 
+    "LCD_Screen", "Relay_Output", "Status_Beep"
+]
 
 class MockDevice:
     def __init__(self, device_id, initial_charge=None):
@@ -20,6 +30,10 @@ class MockDevice:
         self.charge_level = initial_charge or random.randint(20, 100)
         self.status = True  # operational status
         self.charge_trend = random.choice([-1, 1])  # -1 for draining, 1 for charging
+        
+        # Losowe przydzielanie sprzętu (1 do 3 elementów każdego typu)
+        self.actuators = random.sample(POSSIBLE_ACTUATORS, k=random.randint(1, 3))
+        self.emitters = random.sample(POSSIBLE_EMITTERS, k=random.randint(1, 3))
 
     def update(self):
         """Update device operational status and charge level."""
@@ -56,6 +70,8 @@ class MockDevice:
                 "charge_level": self.charge_level,
                 "timestamp": datetime.now().isoformat(),
                 "trend": "charging" if self.charge_trend == 1 else "draining",
+                "actuators": self.actuators,
+                "emitters": self.emitters
             }
         )
 
@@ -131,7 +147,8 @@ class MockMQTTPublisher:
             result = self.client.publish(topic, message)
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
                 status_text = "operational" if device.status else "not operational"
-                print(f"Published {device_id}: {status_text}, {device.charge_level}%")
+                # Skrócony log, żeby nie zaśmiecać konsoli listami sprzętu
+                print(f"Published {device_id}: {status_text}, {device.charge_level}% (HW: {len(device.actuators)}A/{len(device.emitters)}E)")
             else:
                 print(f"Failed to publish to {topic}")
         except Exception as e:
@@ -178,24 +195,27 @@ class MockMQTTPublisher:
     def list_devices(self):
         """List all devices and their current status."""
         print("\nCurrent devices:")
-        print("-" * 50)
+        print("-" * 80)
+        print(f"{'DEVICE ID':<15} | {'STATUS':<10} | {'BAT':<4} | {'ACTUATORS':<20} | {'EMITTERS'}")
+        print("-" * 80)
         for device_id, device in self.devices.items():
-            status = "Operational" if device.status else "Not Operational"
+            status = "OK" if device.status else "ERR"
             trend = "↑" if device.charge_trend == 1 else "↓"
-            print(f"{device_id:20} | {status:13} | {device.charge_level:3d}% {trend}")
-        print("-" * 50)
+            act_str = ",".join(device.actuators)[:20] # truncate for display
+            emit_str = ",".join(device.emitters)
+            print(f"{device_id:<15} | {status:<10} | {device.charge_level:3d}%{trend} | {act_str:<20} | {emit_str}")
+        print("-" * 80)
 
 
 def main():
     """Main function to run the mock publisher."""
-    print("MQTT Device Status Mock Publisher")
+    print("MQTT Device Status Mock Publisher v2.0")
     print("=" * 40)
 
     publisher = MockMQTTPublisher()
 
     if not publisher.connect():
         mqtt_host = os.getenv("MQTT_HOST", "localhost")
-        # mqtt_host = "0.0.0.0"
         print(
             f"Failed to connect to MQTT broker. Make sure it's running on {mqtt_host}:1883"
         )
@@ -204,12 +224,13 @@ def main():
     # Wait a moment for connection to establish
     time.sleep(1)
 
-    # Show initial device list
+    # Show initial device list with hardware details
     publisher.list_devices()
 
     try:
         # Run the simulation (publishes every 5 seconds)
-        publisher.run_simulation(update_interval=5)
+        publisher.run_simulation(update_interval=200)
+
     except Exception as e:
         print(f"Error running simulation: {e}")
     finally:

@@ -1,46 +1,63 @@
 import json
 import os
-import threading
-import time
+import asyncio
 from datetime import datetime
+from typing import List, Dict, Set, Any
+from contextlib import asynccontextmanager
 
 import paho.mqtt.client as mqtt
-from flask import Flask, jsonify, render_template, request
-from flask_socketio import SocketIO, emit
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-app = Flask(__name__)
-socketio = SocketIO(
-    app,
-    cors_allowed_origins="*",
-    async_mode="threading",
-    logger=True,
-    engineio_logger=True,
-    allow_upgrades=False,
-    transports=["polling"],
-)
+# --- Globalne zmienne stanu ---
+device_data: Dict[str, Dict[str, Any]] = {}
+selected_devices: Set[str] = set()
+session_active: bool = False
+mqtt_client: mqtt.Client = None
+main_event_loop = None
 
-device_data = {}
-selected_devices = set()
-session_active = False
-mqtt_client = None
+# --- Menedżer połączeń WebSocket ---
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
 
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections[:]:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                self.disconnect(connection)
+
+manager = ConnectionManager()
+
+# --- Logika MQTT ---
 
 def on_connect(client, userdata, flags, rc):
     print(f"Connected to MQTT broker with result code {rc}")
     client.subscribe("+/status")
     print("Subscribed to +/status topics")
 
-
 def on_message(client, userdata, msg):
     try:
         topic = msg.topic
         device_id = topic.split("/")[0]
         payload = json.loads(msg.payload.decode())
-
+        
         device_status = payload.get("status", False)
         charge_level = payload.get("charge_level", 0)
+        actuators = payload.get("actuators", []) 
+        emitters = payload.get("emitters", [])
 
-        # Add new devices to selected set by default
+        # Logika dodawania urządzeń
         if device_id not in device_data:
             selected_devices.add(device_id)
 
@@ -50,20 +67,47 @@ def on_message(client, userdata, msg):
             "last_updated": datetime.now().isoformat(),
             "topic": topic,
             "selected": device_id in selected_devices,
+            "actuators": actuators, 
+            "emitters": emitters    
         }
 
-        operational = "operational" if device_status else "not operational"
-        print(f"Updated device {device_id}: {operational}, charge={charge_level}%")
-
-        socketio.emit(
-            "device_update", {"device_id": device_id, "data": device_data[device_id]}
-        )
+        # Emitowanie przez WebSocket
+        if main_event_loop and manager.active_connections:
+            message = {
+                "event": "device_update",
+                "data": {"device_id": device_id, "data": device_data[device_id]}
+            }
+            asyncio.run_coroutine_threadsafe(manager.broadcast(message), main_event_loop)
 
     except json.JSONDecodeError:
         print(f"Failed to decode JSON from topic {msg.topic}: {msg.payload}")
     except Exception as e:
         print(f"Error processing message: {e}")
 
+def publish_device_command(device_id: str, command: str, value: Any):
+    """Publikuje komendę do urządzenia przez MQTT"""
+    if mqtt_client is None:
+        print(f"MQTT client not initialized, cannot send command to {device_id}")
+        return False
+    
+    try:
+        topic = f"{device_id}/command"
+        payload = json.dumps({
+            "command": command,
+            "value": value,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        result = mqtt_client.publish(topic, payload)
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(f"Published command to {topic}: {command}={value}")
+            return True
+        else:
+            print(f"Failed to publish command to {topic}, rc={result.rc}")
+            return False
+    except Exception as e:
+        print(f"Error publishing command to {device_id}: {e}")
+        return False
 
 def init_mqtt():
     global mqtt_client
@@ -74,102 +118,159 @@ def init_mqtt():
     try:
         mqtt_host = os.getenv("MQTT_HOST", "localhost")
         mqtt_client.connect(mqtt_host, 1883, 60)
-        mqtt_client.loop_start()
+        mqtt_client.loop_start() 
         print(f"MQTT client started, connected to {mqtt_host}")
     except Exception as e:
         print(f"Failed to connect to MQTT broker: {e}")
 
+# --- Zadania w tle (Cleanup) ---
 
-@app.route("/")
-def index():
-    return render_template("index.html")
-
-
-@app.route("/api/devices")
-def get_devices():
-    return jsonify(device_data)
-
-
-@socketio.on("connect")
-def handle_connect():
-    client_id = request.sid if "request" in globals() else "unknown"
-    print(f"Client connected: {client_id}")
-    emit("devices_data", device_data)
-    emit(
-        "connection_confirmed",
-        {"status": "connected", "server_time": datetime.now().isoformat()},
-    )
-
-
-@socketio.on("device_selected")
-def handle_device_selection(data):
-    device_id = data.get("device_id")
-    is_selected = data.get("selected", False)
-
-    if is_selected:
-        selected_devices.add(device_id)
-    else:
-        selected_devices.discard(device_id)
-
-    if device_id in device_data:
-        device_data[device_id]["selected"] = is_selected
-
-    print(f"Device {device_id} {'selected' if is_selected else 'deselected'}")
-    print(f"Currently selected devices: {list(selected_devices)}")
-
-
-@socketio.on("disconnect")
-def handle_disconnect():
-    client_id = request.sid if "request" in globals() else "unknown"
-    print(f"Client disconnected: {client_id}")
-
-
-@app.route("/api/selected-devices")
-def get_selected_devices():
-    return jsonify(list(selected_devices))
-
-
-@socketio.on("start_session")
-def handle_start_session():
-    global session_active
-    session_active = True
-    print("Session started")
-    socketio.emit("session_status", {"active": True, "action": "started"})
-
-
-@socketio.on("stop_session")
-def handle_stop_session():
-    global session_active
-    session_active = False
-    print("Session stopped")
-    socketio.emit("session_status", {"active": False, "action": "stopped"})
-
-
-def cleanup_old_devices():
+async def cleanup_old_devices_task():
+    print("Starting cleanup task...")
     while True:
         try:
             current_time = datetime.now()
             devices_to_remove = []
 
-            for device_id, data in device_data.items():
+            for device_id, data in list(device_data.items()):
                 last_updated = datetime.fromisoformat(data["last_updated"])
                 if (current_time - last_updated).total_seconds() > 300:
                     devices_to_remove.append(device_id)
 
             for device_id in devices_to_remove:
                 del device_data[device_id]
-                socketio.emit("device_removed", {"device_id": device_id})
+                await manager.broadcast({
+                    "event": "device_removed",
+                    "data": {"device_id": device_id}
+                })
                 print(f"Removed inactive device: {device_id}")
-
+            
         except Exception as e:
-            print(f"Error in cleanup thread: {e}")
+            print(f"Error in cleanup task: {e}")
+        
+        await asyncio.sleep(60)
 
-        time.sleep(60)
+# --- Konfiguracja FastAPI Lifecycle ---
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global main_event_loop
+    main_event_loop = asyncio.get_running_loop()
+    
+    init_mqtt()
+    cleanup_task = asyncio.create_task(cleanup_old_devices_task())
+    
+    yield
+    
+    if mqtt_client:
+        mqtt_client.loop_stop()
+    cleanup_task.cancel()
+    print("Shutdown complete")
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Endpointy HTTP (API) ---
+
+@app.get("/api/devices")
+async def get_devices():
+    return JSONResponse(device_data)
+
+@app.get("/api/selected-devices")
+async def get_selected_devices():
+    return JSONResponse(list(selected_devices))
+
+# --- Endpoint WebSocket ---
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    global session_active 
+    
+    await manager.connect(websocket)
+    client_id = websocket.client.host
+    print(f"Client connected: {client_id}")
+    
+    try:
+        await websocket.send_json({
+            "event": "connection_confirmed",
+            "data": {"status": "connected", "server_time": datetime.now().isoformat()}
+        })
+        await websocket.send_json({
+            "event": "devices_data",
+            "data": device_data
+        })
+        
+        await websocket.send_json({
+            "event": "session_status",
+            "data": {"active": session_active, "action": "status_check"}
+        })
+
+        while True:
+            data = await websocket.receive_json()
+            event_type = data.get("event")
+            payload = data.get("data", {})
+
+            if event_type == "device_selected":
+                device_id = payload.get("device_id")
+                is_selected = payload.get("selected", False)
+
+                if is_selected:
+                    selected_devices.add(device_id)
+                else:
+                    selected_devices.discard(device_id)
+
+                if device_id in device_data:
+                    device_data[device_id]["selected"] = is_selected
+
+                print(f"Device {device_id} {'selected' if is_selected else 'deselected'}")
+                
+            elif event_type == "device_status_change":
+                device_id = payload.get("device_id")
+                new_status = payload.get("status", False)
+                
+                device_data[device_id]["status"] = new_status
+                # Publikujemy komendę przez MQTT
+                success = publish_device_command(device_id, "set_status", new_status)
+                
+                if success:
+                    print(f"Sent status command to {device_id}: {'ON' if new_status else 'OFF'}")
+                else:
+                    print(f"Failed to send status command to {device_id}")
+                
+                # Opcjonalnie: możemy zaktualizować lokalny stan
+                # ale lepiej poczekać na potwierdzenie z urządzenia przez status topic
+                
+            elif event_type == "start_session":
+                session_active = True
+                print("Session started")
+                await manager.broadcast({
+                    "event": "session_status", 
+                    "data": {"active": True, "action": "started"}
+                })
+
+            elif event_type == "stop_session":
+                session_active = False
+                print("Session stopped")
+                await manager.broadcast({
+                    "event": "session_status", 
+                    "data": {"active": False, "action": "stopped"}
+                })
+
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        print(f"Client disconnected: {client_id}")
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        manager.disconnect(websocket)
 
 if __name__ == "__main__":
-    init_mqtt()
-    cleanup_thread = threading.Thread(target=cleanup_old_devices, daemon=True)
-    cleanup_thread.start()
-    print("Starting Flask webapp on http://0.0.0.0:5000")
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
+    import uvicorn
+    print("Starting FastAPI API server...")
+    uvicorn.run(app, host="0.0.0.0", port=5000)

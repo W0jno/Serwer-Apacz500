@@ -1,8 +1,9 @@
 services:
-  # --- Mosquitto broker MQTT ---
+  # --- 1. Mosquitto (Broker MQTT) ---
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: mosquitto
+    user: "${UID:-1000}:${GID:-1000}"
     restart: unless-stopped
     ports:
       - "1883:1883"
@@ -14,21 +15,38 @@ services:
     networks:
       - app-network
 
-  # --- Flask server ---
-  flask:
-    build: .
-    container_name: flask-server
+  # --- 2. Backend (FastAPI) ---
+  fastapi:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi-server
     restart: unless-stopped
     ports:
       - "5000:5000"
     depends_on:
       - mosquitto
+    environment:
+      - MQTT_HOST=mosquitto
     volumes:
       - .:/app
-    environment:
-      - FLASK_ENV=development
-      - FLASK_DEBUG=1
-      - MQTT_HOST=mosquitto
+      - /app/.venv
+      # Ignorujemy folder frontend w kontekście backendu, żeby nie śmiecić
+      - /app/frontend
+    networks:
+      - app-network
+
+  # --- 3. Frontend (React + Vite) ---
+  frontend:
+    build: ./frontend  # Wskazujemy folder, gdzie jest Dockerfile frontendu
+    container_name: react-frontend
+    ports:
+      - "5173:5173"    # Domyślny port Vite
+    volumes:
+      - ./frontend:/app           # Montujemy kod, aby działał podgląd na żywo
+      - /app/node_modules         # ⚠️ WAŻNE: To chroni biblioteki wewnątrz kontenera przed nadpisaniem
+    depends_on:
+      - fastapi                   # Frontend wystartuje po backendzie
     networks:
       - app-network
 
