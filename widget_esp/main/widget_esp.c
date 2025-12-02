@@ -140,7 +140,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 {
     esp_mqtt_event_handle_t event = event_data;
     char effector_topic[64];
-    snprintf(effector_topic, sizeof(effector_topic), "%s/effector", DEVICE_ID);
+    snprintf(effector_topic, sizeof(effector_topic), "%s/command", DEVICE_ID);
 
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
