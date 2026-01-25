@@ -7,17 +7,18 @@ import os
 # --- Konfiguracja ---
 MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
 NUM_DEVICES = 5
-DEVICE_IDS = [f"sim_device_{i+1}" for i in range(NUM_DEVICES)]
+DEVICE_IDS = [f"sim_device_{i + 1}" for i in range(NUM_DEVICES)]
 
 # --- Stan symulatora ---
 device_clients = {}
 
 # --- Logika MQTT dla symulatora ---
 
+
 def on_connect(client, userdata, flags, rc):
     device_id = userdata["device_id"]
     print(f"[{device_id}] Connected to MQTT broker with result code {rc}")
-    
+
     # Subskrypcja na komendy
     command_topic = f"{device_id}/command"
     client.subscribe(command_topic)
@@ -29,15 +30,16 @@ def on_connect(client, userdata, flags, rc):
         "status": True,
         "charge_level": 100,
         "actuators": ["led"],
-        "emitters": ["button"]
+        "emitters": ["button"],
     }
     client.publish(status_topic, json.dumps(status_payload), retain=True)
     print(f"[{device_id}] Published initial status")
 
+
 def on_message(client, userdata, msg):
     device_id = userdata["device_id"]
     print(f"[{device_id}] Received message on {msg.topic}: {msg.payload.decode()}")
-    
+
     try:
         payload = json.loads(msg.payload.decode())
         if "state" in payload:
@@ -46,12 +48,13 @@ def on_message(client, userdata, msg):
     except json.JSONDecodeError:
         print(f"[{device_id}] Failed to decode JSON: {msg.payload.decode()}")
 
+
 def create_device_client(device_id: str):
     """Tworzy i konfiguruje klienta MQTT dla jednego urządzenia."""
     client = mqtt.Client(client_id=device_id, userdata={"device_id": device_id})
     client.on_connect = on_connect
     client.on_message = on_message
-    
+
     try:
         client.connect(MQTT_HOST, 1883, 60)
         client.loop_start()
@@ -60,16 +63,18 @@ def create_device_client(device_id: str):
         print(f"[{device_id}] Failed to connect to MQTT broker: {e}")
         return None
 
+
 # --- Główna pętla symulatora ---
+
 
 def run_simulator():
     print("Starting device simulator...")
-    
+
     for device_id in DEVICE_IDS:
         client = create_device_client(device_id)
         if client:
             device_clients[device_id] = client
-            time.sleep(0.1) # Rozłożenie połączeń w czasie
+            time.sleep(0.1)  # Rozłożenie połączeń w czasie
 
     if not device_clients:
         print("No devices could connect. Exiting simulator.")
@@ -82,21 +87,21 @@ def run_simulator():
             # Losowe wyzwalanie "naciśnięcia przycisku"
             emitter_device_id = random.choice(list(device_clients.keys()))
             client = device_clients[emitter_device_id]
-            
+
             sensor_topic = f"{emitter_device_id}/sensor"
-            
+
             # Symulacja naciśnięcia (sensor_value: true)
             press_payload = json.dumps({"sensor_value": True})
             client.publish(sensor_topic, press_payload)
             print(f"[{emitter_device_id}] Event: Sensor ACTIVE")
-            
-            time.sleep(0.2) # Krótkie opóźnienie symulujące czas naciśnięcia
-            
+
+            time.sleep(0.2)  # Krótkie opóźnienie symulujące czas naciśnięcia
+
             # Symulacja zwolnienia (sensor_value: false)
             release_payload = json.dumps({"sensor_value": False})
             client.publish(sensor_topic, release_payload)
             print(f"[{emitter_device_id}] Event: Sensor INACTIVE")
-            
+
             # Czekaj losowy czas przed następnym zdarzeniem
             time.sleep(random.uniform(2, 5))
 
@@ -106,12 +111,13 @@ def run_simulator():
         for device_id, client in device_clients.items():
             # Publikacja statusu offline
             status_topic = f"{device_id}/status"
-            status_payload = { "status": False }
+            status_payload = {"status": False}
             client.publish(status_topic, json.dumps(status_payload), retain=True)
-            
+
             client.loop_stop()
             client.disconnect()
             print(f"[{device_id}] Disconnected.")
+
 
 if __name__ == "__main__":
     run_simulator()

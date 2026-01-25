@@ -19,6 +19,7 @@ session_graph: Dict[str, str] = {}
 mqtt_client: mqtt.Client = None
 main_event_loop = None
 
+
 # --- Menedżer połączeń WebSocket ---
 class ConnectionManager:
     def __init__(self):
@@ -39,15 +40,18 @@ class ConnectionManager:
             except Exception:
                 self.disconnect(connection)
 
+
 manager = ConnectionManager()
 
 # --- Logika MQTT ---
+
 
 def on_connect(client, userdata, flags, rc):
     print(f"Connected to MQTT broker with result code {rc}")
     client.subscribe("+/status")
     client.subscribe("+/sensor")
     print("Subscribed to +/status and +/sensor topics")
+
 
 def on_message(client, userdata, msg):
     try:
@@ -72,15 +76,17 @@ def on_message(client, userdata, msg):
                 "topic": msg.topic,
                 "selected": device_id in selected_devices,
                 "actuators": actuators,
-                "emitters": emitters
+                "emitters": emitters,
             }
 
             if main_event_loop and manager.active_connections:
                 message = {
                     "event": "device_update",
-                    "data": {"device_id": device_id, "data": device_data[device_id]}
+                    "data": {"device_id": device_id, "data": device_data[device_id]},
                 }
-                asyncio.run_coroutine_threadsafe(manager.broadcast(message), main_event_loop)
+                asyncio.run_coroutine_threadsafe(
+                    manager.broadcast(message), main_event_loop
+                )
 
         elif topic_type == "sensor" and session_active:
             if device_id in session_graph:
@@ -88,17 +94,21 @@ def on_message(client, userdata, msg):
                 sensor_value = payload.get("sensor_value")
 
                 if sensor_value:
-                    print(f"Device {device_id} triggered with value {sensor_value}. Activating {target_device_id}")
+                    print(
+                        f"Device {device_id} triggered with value {sensor_value}. Activating {target_device_id}"
+                    )
                     publish_command(target_device_id, {"state": True})
                 else:
-                    print(f"Device {device_id} released. Deactivating {target_device_id}")
+                    print(
+                        f"Device {device_id} released. Deactivating {target_device_id}"
+                    )
                     publish_command(target_device_id, {"state": False})
-
 
     except json.JSONDecodeError:
         print(f"Failed to decode JSON from topic {msg.topic}: {msg.payload}")
     except Exception as e:
         print(f"Error processing message: {e}")
+
 
 def publish_command(device_id: str, payload: Dict[str, Any]):
     """Publikuje komendę do urządzenia przez MQTT"""
@@ -121,6 +131,7 @@ def publish_command(device_id: str, payload: Dict[str, Any]):
         print(f"Error publishing command to {device_id}: {e}")
         return False
 
+
 def init_mqtt():
     global mqtt_client
     mqtt_client = mqtt.Client()
@@ -135,7 +146,9 @@ def init_mqtt():
     except Exception as e:
         print(f"Failed to connect to MQTT broker: {e}")
 
+
 # --- Zadania w tle (Cleanup) ---
+
 
 async def cleanup_old_devices_task():
     print("Starting cleanup task...")
@@ -151,10 +164,9 @@ async def cleanup_old_devices_task():
 
             for device_id in devices_to_remove:
                 del device_data[device_id]
-                await manager.broadcast({
-                    "event": "device_removed",
-                    "data": {"device_id": device_id}
-                })
+                await manager.broadcast(
+                    {"event": "device_removed", "data": {"device_id": device_id}}
+                )
                 print(f"Removed inactive device: {device_id}")
 
         except Exception as e:
@@ -162,7 +174,9 @@ async def cleanup_old_devices_task():
 
         await asyncio.sleep(60)
 
+
 # --- Konfiguracja FastAPI Lifecycle ---
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -179,6 +193,7 @@ async def lifespan(app: FastAPI):
     cleanup_task.cancel()
     print("Shutdown complete")
 
+
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
@@ -191,15 +206,19 @@ app.add_middleware(
 
 # --- Endpointy HTTP (API) ---
 
+
 @app.get("/api/devices")
 async def get_devices():
     return JSONResponse(device_data)
+
 
 @app.get("/api/selected-devices")
 async def get_selected_devices():
     return JSONResponse(list(selected_devices))
 
+
 # --- Endpoint WebSocket ---
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -210,19 +229,23 @@ async def websocket_endpoint(websocket: WebSocket):
     print(f"Client connected: {client_id}")
 
     try:
-        await websocket.send_json({
-            "event": "connection_confirmed",
-            "data": {"status": "connected", "server_time": datetime.now().isoformat()}
-        })
-        await websocket.send_json({
-            "event": "devices_data",
-            "data": device_data
-        })
+        await websocket.send_json(
+            {
+                "event": "connection_confirmed",
+                "data": {
+                    "status": "connected",
+                    "server_time": datetime.now().isoformat(),
+                },
+            }
+        )
+        await websocket.send_json({"event": "devices_data", "data": device_data})
 
-        await websocket.send_json({
-            "event": "session_status",
-            "data": {"active": session_active, "action": "status_check"}
-        })
+        await websocket.send_json(
+            {
+                "event": "session_status",
+                "data": {"active": session_active, "action": "status_check"},
+            }
+        )
 
         while True:
             data = await websocket.receive_json()
@@ -241,17 +264,23 @@ async def websocket_endpoint(websocket: WebSocket):
                 if device_id in device_data:
                     device_data[device_id]["selected"] = is_selected
 
-                print(f"Device {device_id} {'selected' if is_selected else 'deselected'}")
+                print(
+                    f"Device {device_id} {'selected' if is_selected else 'deselected'}"
+                )
 
             elif event_type == "device_status_change":
                 device_id = payload.get("device_id")
                 new_status = payload.get("status", False)
 
                 device_data[device_id]["status"] = new_status
-                success = publish_command(device_id, {"command": "set_status", "value": new_status})
+                success = publish_command(
+                    device_id, {"command": "set_status", "value": new_status}
+                )
 
                 if success:
-                    print(f"Sent status command to {device_id}: {'ON' if new_status else 'OFF'}")
+                    print(
+                        f"Sent status command to {device_id}: {'ON' if new_status else 'OFF'}"
+                    )
                 else:
                     print(f"Failed to send status command to {device_id}")
 
@@ -266,32 +295,34 @@ async def websocket_endpoint(websocket: WebSocket):
                     for i in range(len(devices_in_session)):
                         emitter_device = devices_in_session[i]
                         # The last device connects to the first, creating a cycle
-                        actuator_device = devices_in_session[(i + 1) % len(devices_in_session)]
+                        actuator_device = devices_in_session[
+                            (i + 1) % len(devices_in_session)
+                        ]
                         session_graph[emitter_device] = actuator_device
 
                 print("Session started")
                 print("Session graph:", session_graph)
-                await manager.broadcast({
-                    "event": "session_status",
-                    "data": {"active": True, "action": "started"}
-                })
-                await manager.broadcast({
-                    "event": "session_graph_update",
-                    "data": session_graph
-                })
+                await manager.broadcast(
+                    {
+                        "event": "session_status",
+                        "data": {"active": True, "action": "started"},
+                    }
+                )
+                await manager.broadcast(
+                    {"event": "session_graph_update", "data": session_graph}
+                )
 
             elif event_type == "stop_session":
                 session_active = False
                 session_graph.clear()
                 print("Session stopped")
-                await manager.broadcast({
-                    "event": "session_status",
-                    "data": {"active": False, "action": "stopped"}
-                })
-                await manager.broadcast({
-                    "event": "session_graph_update",
-                    "data": {}
-                })
+                await manager.broadcast(
+                    {
+                        "event": "session_status",
+                        "data": {"active": False, "action": "stopped"},
+                    }
+                )
+                await manager.broadcast({"event": "session_graph_update", "data": {}})
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
@@ -300,7 +331,9 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"WebSocket error: {e}")
         manager.disconnect(websocket)
 
+
 if __name__ == "__main__":
     import uvicorn
+
     print("Starting FastAPI API server...")
     uvicorn.run(app, host="0.0.0.0", port=5000)

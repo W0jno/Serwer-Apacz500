@@ -7,7 +7,6 @@ Publishes fake device status messages including hardware capabilities (actuators
 import json
 import os
 import random
-import threading
 import time
 from datetime import datetime
 
@@ -15,14 +14,25 @@ import paho.mqtt.client as mqtt
 
 # --- BAZA MOŻLIWYCH KOMPONENTÓW ---
 POSSIBLE_ACTUATORS = [
-    "Button_Main", "Button_Reset", "Switch_A", "Switch_B", 
-    "Proximity_Sensor", "Reed_Switch", "Touch_Panel"
+    "Button_Main",
+    "Button_Reset",
+    "Switch_A",
+    "Switch_B",
+    "Proximity_Sensor",
+    "Reed_Switch",
+    "Touch_Panel",
 ]
 
 POSSIBLE_EMITTERS = [
-    "Green_LED", "Red_LED", "Blue_LED", "Buzzer", 
-    "LCD_Screen", "Relay_Output", "Status_Beep"
+    "Green_LED",
+    "Red_LED",
+    "Blue_LED",
+    "Buzzer",
+    "LCD_Screen",
+    "Relay_Output",
+    "Status_Beep",
 ]
+
 
 class MockDevice:
     def __init__(self, device_id, initial_charge=None):
@@ -30,7 +40,7 @@ class MockDevice:
         self.charge_level = initial_charge or random.randint(20, 100)
         self.status = True  # operational status
         self.charge_trend = random.choice([-1, 1])  # -1 for draining, 1 for charging
-        
+
         # Losowe przydzielanie sprzętu (1 do 3 elementów każdego typu)
         self.actuators = random.sample(POSSIBLE_ACTUATORS, k=random.randint(1, 3))
         self.emitters = random.sample(POSSIBLE_EMITTERS, k=random.randint(1, 3))
@@ -71,7 +81,7 @@ class MockDevice:
                 "timestamp": datetime.now().isoformat(),
                 "trend": "charging" if self.charge_trend == 1 else "draining",
                 "actuators": self.actuators,
-                "emitters": self.emitters
+                "emitters": self.emitters,
             }
         )
 
@@ -148,7 +158,9 @@ class MockMQTTPublisher:
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
                 status_text = "operational" if device.status else "not operational"
                 # Skrócony log, żeby nie zaśmiecać konsoli listami sprzętu
-                print(f"Published {device_id}: {status_text}, {device.charge_level}% (HW: {len(device.actuators)}A/{len(device.emitters)}E)")
+                print(
+                    f"Published {device_id}: {status_text}, {device.charge_level}% (HW: {len(device.actuators)}A/{len(device.emitters)}E)"
+                )
             else:
                 print(f"Failed to publish to {topic}")
         except Exception as e:
@@ -196,14 +208,18 @@ class MockMQTTPublisher:
         """List all devices and their current status."""
         print("\nCurrent devices:")
         print("-" * 80)
-        print(f"{'DEVICE ID':<15} | {'STATUS':<10} | {'BAT':<4} | {'ACTUATORS':<20} | {'EMITTERS'}")
+        print(
+            f"{'DEVICE ID':<15} | {'STATUS':<10} | {'BAT':<4} | {'ACTUATORS':<20} | {'EMITTERS'}"
+        )
         print("-" * 80)
         for device_id, device in self.devices.items():
             status = "OK" if device.status else "ERR"
             trend = "↑" if device.charge_trend == 1 else "↓"
-            act_str = ",".join(device.actuators)[:20] # truncate for display
+            act_str = ",".join(device.actuators)[:20]  # truncate for display
             emit_str = ",".join(device.emitters)
-            print(f"{device_id:<15} | {status:<10} | {device.charge_level:3d}%{trend} | {act_str:<20} | {emit_str}")
+            print(
+                f"{device_id:<15} | {status:<10} | {device.charge_level:3d}%{trend} | {act_str:<20} | {emit_str}"
+            )
         print("-" * 80)
 
 
