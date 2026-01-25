@@ -277,6 +277,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     "event": "session_status", 
                     "data": {"active": True, "action": "started"}
                 })
+                await manager.broadcast({
+                    "event": "session_graph_update",
+                    "data": session_graph
+                })
 
             elif event_type == "stop_session":
                 session_active = False
@@ -285,6 +289,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 await manager.broadcast({
                     "event": "session_status", 
                     "data": {"active": False, "action": "stopped"}
+                })
+                await manager.broadcast({
+                    "event": "session_graph_update",
+                    "data": {}
                 })
 
     except WebSocketDisconnect:
