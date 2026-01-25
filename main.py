@@ -85,13 +85,13 @@ def on_message(client, userdata, msg):
         elif topic_type == "sensor" and session_active:
             if device_id in session_graph:
                 target_device_id = session_graph[device_id]
-                button_state = payload.get("button_state")
+                sensor_value = payload.get("sensor_value")
 
-                # button_state 0 is pressed, 1 is released
-                if button_state == 0:
-                    print(f"Device {device_id} triggered. Activating {target_device_id}")
+                # Treat a truthy value as activation, falsy as deactivation
+                if sensor_value:
+                    print(f"Device {device_id} triggered with value {sensor_value}. Activating {target_device_id}")
                     publish_command(target_device_id, {"state": True})
-                elif button_state == 1:
+                else:
                     print(f"Device {device_id} released. Deactivating {target_device_id}")
                     publish_command(target_device_id, {"state": False})
 
