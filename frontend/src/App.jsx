@@ -27,6 +27,7 @@ import {
 
 import DeviceItem from '../components/DeviceItem.jsx'
 import Header from '../components/Header.jsx'
+import SessionGraph from '../components/SessionGraph.jsx';
 
 const getTimestamp = () => new Date().toLocaleTimeString();
 
@@ -36,6 +37,7 @@ export default function App() {
   const [devices, setDevices] = useState({});
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [sessionGraph, setSessionGraph] = useState({});
   
   const logEndRef = useRef(null);
 
@@ -105,6 +107,11 @@ export default function App() {
 
           case 'session_status':
             addLog(`Session ${data.action} - Status: ${data.active ? 'active' : 'inactive'}`);
+            break;
+
+          case 'session_graph_update':
+            setSessionGraph(data);
+            addLog("Session graph updated");
             break;
             
           default:
@@ -211,7 +218,7 @@ export default function App() {
             {/* Graph / Main Workspace */}
             <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#fafafa', m: 2, border: '2px dashed #ddd', borderRadius: 2 }}>
-                <Typography variant="h5" color="text.secondary">Graph Area</Typography>
+                <SessionGraph graph={sessionGraph} />
               </Box>
               
               <Box p={2} borderTop={1} borderColor="divider" display="flex" justifyContent="center" gap={2}>
