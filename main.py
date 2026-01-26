@@ -63,13 +63,15 @@ def on_message(client, userdata, msg):
         payload = json.loads(msg.payload.decode())
 
         if topic_type == "status":
-            device_status = payload.get("status", True)
             charge_level = payload.get("charge_level", 0)
             actuators = payload.get("actuators", [])
             emitters = payload.get("emitters", [])
 
             if device_id not in device_data:
                 selected_devices.add(device_id)
+                device_status = True  # Initialize as ON by default
+            else:
+                device_status = payload.get("status", True)
 
             device_data[device_id] = {
                 "status": device_status,
