@@ -79,6 +79,17 @@ async def websocket_endpoint(websocket: WebSocket):
     print(f"Client connected: {client_id}")
 
     try:
+        # Prune inactive devices (older than 30s) on connection to ensure fresh view
+        removed_ids = device_manager.cleanup_inactive(timeout_seconds=30)
+        for device_id in removed_ids:
+            print(f"Removed inactive device (refresh cleanup): {device_id}")
+            await connection_manager.broadcast(
+                WebSocketMessage(
+                    event="device_removed",
+                    data={"device_id": device_id}
+                )
+            )
+
         # Initial State Sync
         await websocket.send_json({
             "event": "connection_confirmed",
