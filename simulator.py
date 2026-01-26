@@ -90,15 +90,15 @@ def run_simulator():
 
             sensor_topic = f"{emitter_device_id}/sensor"
 
-            # Symulacja naciśnięcia (button_state: 0 -> pressed)
-            press_payload = json.dumps({"button_state": 0})
+            # Symulacja naciśnięcia (sensor_value: 0 -> pressed)
+            press_payload = json.dumps({"sensor_value": 0})
             client.publish(sensor_topic, press_payload)
             print(f"[{emitter_device_id}] Event: Sensor ACTIVE (Pressed)")
 
             time.sleep(0.2)  # Krótkie opóźnienie symulujące czas naciśnięcia
 
-            # Symulacja zwolnienia (button_state: 1 -> released)
-            release_payload = json.dumps({"button_state": 1})
+            # Symulacja zwolnienia (sensor_value: 1 -> released)
+            release_payload = json.dumps({"sensor_value": 1})
             client.publish(sensor_topic, release_payload)
             print(f"[{emitter_device_id}] Event: Sensor INACTIVE (Released)")
 

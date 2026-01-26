@@ -91,8 +91,8 @@ def on_message(client, userdata, msg):
                 )
 
         elif topic_type == "sensor" and session_active:
-            button_state = payload.get("button_state")
-            if button_state is None:
+            sensor_value = payload.get("sensor_value")
+            if sensor_value is None:
                 return
 
             try:
@@ -100,7 +100,7 @@ def on_message(client, userdata, msg):
             except ValueError:
                 return  # Device not in the current session
 
-            if button_state == 0:  # Button pressed
+            if sensor_value == 0:  # Button pressed
                 print(f"Device {device_id} pressed. Evaluating connections...")
                 active_session_connections[device_id] = []
                 device_row = session_matrix[device_index]
@@ -114,7 +114,7 @@ def on_message(client, userdata, msg):
                         publish_command(target_device_id, {"state": True})
                         active_session_connections[device_id].append(target_device_id)
 
-            elif button_state == 1:  # Button released
+            elif sensor_value == 1:  # Button released
                 if device_id in active_session_connections:
                     print(f"Device {device_id} released. Deactivating connections...")
                     for target_device_id in active_session_connections[device_id]:
