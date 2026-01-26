@@ -63,7 +63,7 @@ def on_message(client, userdata, msg):
         payload = json.loads(msg.payload.decode())
 
         if topic_type == "status":
-            device_status = payload.get("status", False)
+            device_status = payload.get("status", True)
             charge_level = payload.get("charge_level", 0)
             actuators = payload.get("actuators", [])
             emitters = payload.get("emitters", [])
@@ -288,11 +288,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif event_type == "device_status_change":
                 device_id = payload.get("device_id")
-                new_status = payload.get("status", False)
+                new_status = payload.get("status", True)
 
                 device_data[device_id]["status"] = new_status
                 success = publish_command(
-                    device_id, {"command": "set_status", "value": new_status}
+                    device_id, {"state": new_status}
                 )
 
                 if success:
@@ -316,13 +316,19 @@ async def websocket_endpoint(websocket: WebSocket):
                 session_devices.extend(devices_in_session)
 
                 n = len(session_devices)
-                # Create a random matrix, ensuring no self-connections
-                session_matrix.extend(
-                    [
-                        [0.0 if i == j else random.random() for j in range(n)]
-                        for i in range(n)
-                    ]
-                )
+                session_matrix.clear()
+                
+                if n > 0:
+                    for i in range(n):
+                        # Initialize row with low random probabilities
+                        row = [0.0 if r == i else random.uniform(0, 0.3) for r in range(n)]
+                        
+                        if n > 1:
+                            # Pick a random target distinct from self to be deterministic
+                            target = random.choice([x for x in range(n) if x != i])
+                            row[target] = 1.0
+                        
+                        session_matrix.append(row)
 
                 print("Session started with connection matrix.")
                 print("Devices:", session_devices)
