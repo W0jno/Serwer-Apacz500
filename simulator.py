@@ -90,17 +90,17 @@ def run_simulator():
 
             sensor_topic = f"{emitter_device_id}/sensor"
 
-            # Symulacja naciśnięcia (sensor_value: true)
-            press_payload = json.dumps({"sensor_value": True})
+            # Symulacja naciśnięcia (button_state: 0 -> pressed)
+            press_payload = json.dumps({"button_state": 0})
             client.publish(sensor_topic, press_payload)
-            print(f"[{emitter_device_id}] Event: Sensor ACTIVE")
+            print(f"[{emitter_device_id}] Event: Sensor ACTIVE (Pressed)")
 
             time.sleep(0.2)  # Krótkie opóźnienie symulujące czas naciśnięcia
 
-            # Symulacja zwolnienia (sensor_value: false)
-            release_payload = json.dumps({"sensor_value": False})
+            # Symulacja zwolnienia (button_state: 1 -> released)
+            release_payload = json.dumps({"button_state": 1})
             client.publish(sensor_topic, release_payload)
-            print(f"[{emitter_device_id}] Event: Sensor INACTIVE")
+            print(f"[{emitter_device_id}] Event: Sensor INACTIVE (Released)")
 
             # Czekaj losowy czas przed następnym zdarzeniem
             time.sleep(random.uniform(2, 5))
