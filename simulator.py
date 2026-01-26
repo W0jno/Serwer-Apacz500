@@ -28,7 +28,7 @@ def on_connect(client, userdata, flags, rc):
     status_topic = f"{device_id}/status"
     status_payload = {
         "status": True,
-        "charge_level": 100,
+        "charge_level": random.randint(10, 95),
         "actuators": ["led"],
         "emitters": ["button"],
     }
