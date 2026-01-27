@@ -1,21 +1,23 @@
+import asyncio
 import json
 import os
 import random
-import asyncio
-from datetime import datetime
-from typing import List, Dict, Set, Any
 from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Any, Dict, List, Set
 
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # --- Globalne zmienne stanu ---
 device_data: Dict[str, Dict[str, Any]] = {}
 selected_devices: Set[str] = set()
 session_active: bool = False
-session_graph: Dict[str, str] = {}
+session_matrix: List[List[float]] = []
+session_devices: List[str] = []
+active_session_connections: Dict[str, List[str]] = {}
 mqtt_client: mqtt.Client = None
 main_event_loop = None
 
@@ -61,7 +63,7 @@ def on_message(client, userdata, msg):
         payload = json.loads(msg.payload.decode())
 
         if topic_type == "status":
-            device_status = payload.get("status", False)
+            device_status = payload.get("status", True)
             charge_level = payload.get("charge_level", 0)
             actuators = payload.get("actuators", [])
             emitters = payload.get("emitters", [])
@@ -89,20 +91,36 @@ def on_message(client, userdata, msg):
                 )
 
         elif topic_type == "sensor" and session_active:
-            if device_id in session_graph:
-                target_device_id = session_graph[device_id]
-                sensor_value = payload.get("sensor_value")
+            sensor_value = payload.get("sensor_value")
+            if sensor_value is None:
+                return
 
-                if sensor_value:
-                    print(
-                        f"Device {device_id} triggered with value {sensor_value}. Activating {target_device_id}"
-                    )
-                    publish_command(target_device_id, {"state": True})
-                else:
-                    print(
-                        f"Device {device_id} released. Deactivating {target_device_id}"
-                    )
-                    publish_command(target_device_id, {"state": False})
+            try:
+                device_index = session_devices.index(device_id)
+            except ValueError:
+                return  # Device not in the current session
+
+            if sensor_value == 0:  # Button pressed
+                print(f"Device {device_id} pressed. Evaluating connections...")
+                active_session_connections[device_id] = []
+                device_row = session_matrix[device_index]
+
+                for target_index, prob in enumerate(device_row):
+                    if random.random() < prob:
+                        target_device_id = session_devices[target_index]
+                        print(
+                            f"  Connecting {device_id} -> {target_device_id} (prob: {prob:.2f})"
+                        )
+                        publish_command(target_device_id, {"state": True})
+                        active_session_connections[device_id].append(target_device_id)
+
+            elif sensor_value == 1:  # Button released
+                if device_id in active_session_connections:
+                    print(f"Device {device_id} released. Deactivating connections...")
+                    for target_device_id in active_session_connections[device_id]:
+                        print(f"  Disconnecting {device_id} -> {target_device_id}")
+                        publish_command(target_device_id, {"state": False})
+                    del active_session_connections[device_id]
 
     except json.JSONDecodeError:
         print(f"Failed to decode JSON from topic {msg.topic}: {msg.payload}")
@@ -270,11 +288,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif event_type == "device_status_change":
                 device_id = payload.get("device_id")
-                new_status = payload.get("status", False)
+                new_status = payload.get("status", True)
 
                 device_data[device_id]["status"] = new_status
                 success = publish_command(
-                    device_id, {"command": "set_status", "value": new_status}
+                    device_id, {"state": new_status}
                 )
 
                 if success:
@@ -285,23 +303,37 @@ async def websocket_endpoint(websocket: WebSocket):
                     print(f"Failed to send status command to {device_id}")
 
             elif event_type == "start_session":
-                session_active = True
-                session_graph.clear()
+                session_matrix.clear()
+                session_devices.clear()
+                active_session_connections.clear()
 
                 devices_in_session = list(selected_devices)
-                random.shuffle(devices_in_session)
+                if not devices_in_session:
+                    print("No devices selected for the session.")
+                    continue
 
-                if len(devices_in_session) > 1:
-                    for i in range(len(devices_in_session)):
-                        emitter_device = devices_in_session[i]
-                        # The last device connects to the first, creating a cycle
-                        actuator_device = devices_in_session[
-                            (i + 1) % len(devices_in_session)
-                        ]
-                        session_graph[emitter_device] = actuator_device
+                session_active = True
+                session_devices.extend(devices_in_session)
 
-                print("Session started")
-                print("Session graph:", session_graph)
+                n = len(session_devices)
+                session_matrix.clear()
+                
+                if n > 0:
+                    for i in range(n):
+                        # Initialize row with low random probabilities
+                        row = [0.0 if r == i else random.uniform(0, 0.3) for r in range(n)]
+                        
+                        if n > 1:
+                            # Pick a random target distinct from self to be deterministic
+                            target = random.choice([x for x in range(n) if x != i])
+                            row[target] = 1.0
+                        
+                        session_matrix.append(row)
+
+                print("Session started with connection matrix.")
+                print("Devices:", session_devices)
+                print("Matrix:", session_matrix)
+
                 await manager.broadcast(
                     {
                         "event": "session_status",
@@ -309,12 +341,20 @@ async def websocket_endpoint(websocket: WebSocket):
                     }
                 )
                 await manager.broadcast(
-                    {"event": "session_graph_update", "data": session_graph}
+                    {
+                        "event": "session_matrix_update",
+                        "data": {
+                            "devices": session_devices,
+                            "matrix": session_matrix,
+                        },
+                    }
                 )
 
             elif event_type == "stop_session":
                 session_active = False
-                session_graph.clear()
+                session_matrix.clear()
+                session_devices.clear()
+                active_session_connections.clear()
                 print("Session stopped")
                 await manager.broadcast(
                     {
@@ -322,7 +362,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         "data": {"active": False, "action": "stopped"},
                     }
                 )
-                await manager.broadcast({"event": "session_graph_update", "data": {}})
+                await manager.broadcast(
+                    {
+                        "event": "session_matrix_update",
+                        "data": {"devices": [], "matrix": []},
+                    }
+                )
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)

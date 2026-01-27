@@ -109,9 +109,9 @@ export default function App() {
             addLog(`Session ${data.action} - Status: ${data.active ? 'active' : 'inactive'}`);
             break;
 
-          case 'session_graph_update':
+          case 'session_matrix_update':
             setSessionGraph(data);
-            addLog("Session graph updated");
+            addLog("Session matrix updated");
             break;
             
           default:

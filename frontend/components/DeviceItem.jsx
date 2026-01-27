@@ -18,7 +18,7 @@ const getChargeColor = (level) => {
 };
 
 const DeviceItem = ({ deviceId, data, onToggleSelect, onToggleStatus }) => {
-  const isOperational = data.status;
+  const isOperational = data.status !== undefined ? data.status : true;
   
   return (
     <Card 
@@ -63,7 +63,7 @@ const DeviceItem = ({ deviceId, data, onToggleSelect, onToggleStatus }) => {
         <FormControlLabel
           control={
             <Checkbox 
-              checked={data.status || false} 
+              checked={isOperational} 
               onChange={(e) => onToggleStatus(deviceId, e.target.checked)}
               size="small"
             />

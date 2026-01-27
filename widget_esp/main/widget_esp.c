@@ -276,7 +276,7 @@ void app_main(void)
             // Publish sensor data (button state) only when it changes
             int button_state = button_led_get_state();
             if (button_state != last_button_state) {
-                snprintf(message, sizeof(message), "{\"button_state\": %d}", button_state);
+                snprintf(message, sizeof(message), "{\"sensor_value\": %d}", button_state);
                 esp_mqtt_client_publish(mqtt_client, sensor_topic, message, 0, 0, 0);  // QoS 0 for frequent messages
                 ESP_LOGI(TAG, "Button state changed: %d -> %d", last_button_state, button_state);
                 last_button_state = button_state;
