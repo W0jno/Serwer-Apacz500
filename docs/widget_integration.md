@@ -163,3 +163,28 @@ Opcjonalne zmienne środowiskowe:
 - `MQTT_PORT` (domyślnie `1883`)
 - `WS_URL` (domyślnie `ws://localhost:5000/ws`)
 - `API_DEVICES_URL` (domyślnie `http://localhost:5000/api/devices`)
+
+
+## 6) Sterowanie widgetami z frontendu
+
+Po tej zmianie frontend może wysyłać komendy bezpośrednio do widgetu przez WebSocket:
+
+- event: `device_command`
+- payload:
+
+```json
+{
+  "device_id": "widget_001",
+  "actuator": "light_strip",
+  "value": 0.42
+}
+```
+
+Backend przekazuje to dalej na MQTT topic `<device_id>/command` jako JSON.
+
+W UI (lista urządzeń) masz teraz:
+- wybór aktywatora z `actuators` urządzenia,
+- szybkie przyciski `ON/OFF`,
+- pole `Custom value` (np. `0.42`, `true`, `pwm`).
+
+Dzięki temu można sterować także aktywatorami innymi niż LED bez zmian po stronie Pythona.
