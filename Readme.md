@@ -16,5 +16,3 @@ docker compose exec flask uv run python test_mqtt_publisher.py
 ## Testy integracyjne widgetów
 
 - Gotowe scenariusze E2E: `tests/widget_e2e_tests.py`
-
-- Sterowanie aktywatorami z UI (frontend): `device_command` opisane w `docs/widget_integration.md`
