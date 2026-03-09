@@ -92,10 +92,13 @@ class SessionManager:
         self.matrix: SessionMatrix = SessionMatrix()
         # Active connections: source_id -> list of target_ids currently triggered
         self.active_connections: Dict[str, List[str]] = {}
+        # Last known emitter state: "<source_id>:<emitter_id>" -> bool
+        self.emitter_states: Dict[str, bool] = {}
 
     def start_session(self, selected_ids: List[str]) -> SessionMatrix:
         self.active = True
         self.active_connections.clear()
+        self.emitter_states.clear()
         
         devices = sorted(selected_ids) # Sort for consistency
         n = len(devices)
@@ -120,6 +123,27 @@ class SessionManager:
         self.active = False
         self.matrix = SessionMatrix()
         self.active_connections.clear()
+        self.emitter_states.clear()
+
+    def handle_emitter_event(self, source_id: str, emitter_id: str, is_active: bool) -> List[str]:
+        """Handles generic emitter state transitions.
+
+        Triggers targets only on state changes:
+        - False -> True: activate target connections
+        - True -> False: deactivate previously active connections
+        """
+        key = f"{source_id}:{emitter_id}"
+        previous_state = self.emitter_states.get(key)
+
+        # Ignore repeated level samples with unchanged state.
+        if previous_state is not None and previous_state == is_active:
+            return []
+
+        self.emitter_states[key] = is_active
+
+        if is_active:
+            return self.handle_button_press(source_id)
+        return self.handle_button_release(source_id)
 
     def handle_button_press(self, source_id: str) -> List[str]:
         """Returns a list of target device IDs to trigger."""
