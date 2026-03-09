@@ -4,6 +4,52 @@ Ten projekt ma gotowy firmware dla ESP32: `widget_esp/`.
 
 ## TL;DR
 
+
+## 0) Jak uruchomić serwer krok po kroku
+
+Poniżej pełna sekwencja, żeby postawić backend, broker MQTT i frontend lokalnie.
+
+1. Wejdź do katalogu projektu:
+
+```bash
+cd /workspace/Serwer-Apacz500
+```
+
+2. Uruchom usługi w Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+3. Sprawdź, czy kontenery działają:
+
+```bash
+docker compose ps
+```
+
+Powinny działać co najmniej:
+- `mosquitto` (broker MQTT na porcie `1883`)
+- `fastapi-server` (backend API/WebSocket na porcie `5000`)
+- `react-frontend` (frontend na porcie `5173`)
+
+4. (Opcjonalnie) Podejrzyj logi backendu:
+
+```bash
+docker compose logs -f fastapi
+```
+
+5. Otwórz aplikacje:
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:5000/api/devices`
+- WebSocket: `ws://localhost:5000/ws`
+
+6. Aby zatrzymać środowisko:
+
+```bash
+docker compose down
+```
+
+
 1. `cd widget_esp`
 2. `idf.py menuconfig`
 3. Ustaw `device_id`, Wi‑Fi, broker MQTT oraz **listy aktywatorów/emiterów**.
