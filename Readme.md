@@ -41,3 +41,9 @@ Aby widgety łączyły się z serwerem przez Wi‑Fi, skonfiguruj je adresem LAN
 zamiast `localhost`.
 
 Szczegóły konfiguracji LAN i portów są w `docs/widget_integration.md` (sekcja **3A. Konfiguracja serwera pod połączenia widgetów przez Wi‑Fi (LAN)**).
+
+
+## Szybka integracja bez menuconfig (hardcoded)
+
+- Gotowy moduł do wpięcia w istniejący projekt zespołu: `widget_dropin/`
+- Instrukcja krok po kroku: `widget_dropin/README.md`

@@ -337,6 +337,17 @@ Jeśli zespół chce tylko konfigurację i integrację MQTT, a nie cały firmwar
 3. Nie trzeba kopiować całego `widget_esp/` 1:1, jeżeli zespół ma własną logikę firmware.
 
 
+
+## 4C. Integracja bez `menuconfig` (hardcoded config)
+
+Dla zespołów, które nie chcą używać `menuconfig`, dostępny jest gotowy moduł:
+
+- `widget_dropin/widget_bridge.c`
+- `widget_dropin/widget_bridge.h`
+- instrukcja: `widget_dropin/README.md`
+
+W tym wariancie konfiguracja (`SSID`, `hasło`, `device_id`, `MQTT URI`) jest wpisywana bezpośrednio w `widget_bridge.c`.
+
 ## 5. Kontrakt MQTT
 
 ### 5.1. Status urządzenia (ESP32 -> serwer)
