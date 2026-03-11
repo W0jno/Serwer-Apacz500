@@ -264,29 +264,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 success = mqtt_service.publish_command(device_id, command_payload)
                 if success:
-                    print(f"Sent status command to {device_id}: {'ON' if new_status else 'OFF'}")
-                else:
-                    print(f"Failed to send status command to {device_id}")
-                
-                # Opcjonalnie: możemy zaktualizować lokalny stan
-                # ale lepiej poczekać na potwierdzenie z urządzenia przez status topic
-                
-            elif event_type == "component_command":
-                device_id = payload.get("device_id")
-                component_type = payload.get("component_type")  # "actuator" or "emitter"
-                name = payload.get("name")
-                state = payload.get("state", False)
-
-                if device_id and component_type and name:
-                    success = publish_device_command(
-                        device_id,
-                        f"{component_type}",
-                        {"name": name, "state": state}
-                    )
-                    if success:
-                        print(f"Sent {component_type} command to {device_id}: {name}={'ON' if state else 'OFF'}")
-                    else:
-                        print(f"Failed to send {component_type} command to {device_id}")
+                    print(f"Sent generic command to {device_id}: actuator={actuator}, value={value}")
 
             elif event_type == "start_session":
                 selected_ids = device_manager.get_selected_ids()

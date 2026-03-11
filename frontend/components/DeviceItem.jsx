@@ -13,9 +13,7 @@ import {
   Select,
   TextField,
 } from '@mui/material';
-import {
-  Circle as CircleIcon,
-} from '@mui/icons-material';
+import { Circle as CircleIcon } from '@mui/icons-material';
 
 const getChargeColor = (level) => {
   if (level <= 20) return 'error';
@@ -37,22 +35,37 @@ const parseInputValue = (text) => {
   return raw;
 };
 
-const DeviceItem = ({ deviceId, data, onToggleSelect, onToggleStatus, onSelect, isViewed }) => {
-  const isOperational = data.status;
+const DeviceItem = ({ deviceId, data, onToggleSelect, onToggleStatus, onSendCommand }) => {
+  const isOperational = data.status !== undefined ? data.status : true;
+  const actuators = useMemo(
+    () => (Array.isArray(data.actuators) && data.actuators.length > 0 ? data.actuators : ['default']),
+    [data.actuators]
+  );
+
+  const [selectedActuator, setSelectedActuator] = useState(actuators[0]);
+  const [customValue, setCustomValue] = useState('');
+
+  const activeActuator = actuators.includes(selectedActuator) ? selectedActuator : actuators[0];
+
+  const sendBooleanCommand = (value) => {
+    onSendCommand(deviceId, activeActuator, value);
+  };
+
+  const sendCustomCommand = () => {
+    const parsedValue = parseInputValue(customValue);
+    if (parsedValue === '') return;
+    onSendCommand(deviceId, activeActuator, parsedValue);
+  };
 
   return (
     <Card
       variant="outlined"
-      onClick={() => onSelect && onSelect(deviceId)}
       sx={{
         mb: 2,
         borderLeft: 6,
-        borderColor: isViewed ? 'primary.main' : (isOperational ? 'success.main' : 'error.main'),
-        transition: 'transform 0.2s, box-shadow 0.2s',
-        cursor: 'pointer',
-        boxShadow: isViewed ? 3 : undefined,
-        bgcolor: isViewed ? 'primary.50' : undefined,
-        '&:hover': { transform: 'translateX(4px)', bgcolor: isViewed ? 'primary.50' : '#f5f5f5' }
+        borderColor: isOperational ? 'success.main' : 'error.main',
+        transition: 'transform 0.2s',
+        '&:hover': { transform: 'translateX(4px)', bgcolor: '#f5f5f5' },
       }}
     >
       <CardContent sx={{ pb: '16px !important' }}>
@@ -76,22 +89,12 @@ const DeviceItem = ({ deviceId, data, onToggleSelect, onToggleStatus, onSelect, 
 
         <FormControlLabel
           control={
-            <Checkbox
-              checked={data.selected || false}
-              onChange={(e) => { e.stopPropagation(); onToggleSelect(deviceId, e.target.checked); }}
-              size="small"
-            />
+            <Checkbox checked={data.selected || false} onChange={(e) => onToggleSelect(deviceId, e.target.checked)} size="small" />
           }
           label={<Typography variant="body2" color="text.secondary">Select for session</Typography>}
         />
         <FormControlLabel
-          control={
-            <Checkbox
-              checked={data.status || false}
-              onChange={(e) => { e.stopPropagation(); onToggleStatus(deviceId, e.target.checked); }}
-              size="small"
-            />
-          }
+          control={<Checkbox checked={isOperational} onChange={(e) => onToggleStatus(deviceId, e.target.checked)} size="small" />}
           label={<Typography variant="body2" color="text.secondary">ON/OFF</Typography>}
         />
 

@@ -13,15 +13,18 @@
 #include "mqtt_client.h"
 #include "cJSON.h"
 
-#define WIFI_SSID      "Iphone Filipa"
-#define WIFI_PASS      "dupajasiu123"
+#include "button_led.h"
+#include "sdkconfig.h"
+
 #define WIFI_MAX_RETRY 5
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
-#define DEVICE_ID      "widget_001"
-#define MQTT_BROKER_URI "mqtt://172.20.10.2"
+#define DEVICE_ID CONFIG_WIDGET_DEVICE_ID
+#define WIFI_SSID CONFIG_WIDGET_WIFI_SSID
+#define WIFI_PASS CONFIG_WIDGET_WIFI_PASS
+#define MQTT_BROKER_URI CONFIG_WIDGET_MQTT_BROKER_URI
 
 static const char *TAG = "widget_esp";
 static EventGroupHandle_t s_wifi_event_group;

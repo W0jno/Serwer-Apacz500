@@ -28,9 +28,8 @@ export default function App() {
   const [devices, setDevices] = useState({});
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [viewedDeviceId, setViewedDeviceId] = useState(null);
-  const [componentStates, setComponentStates] = useState({});
-  
+  const [sessionGraph, setSessionGraph] = useState({});
+
   const logEndRef = useRef(null);
   const socketRef = useRef(null);
 
@@ -169,19 +168,6 @@ export default function App() {
         data: {}
       }));
     }
-  };
-
-  const handleDeviceClick = (deviceId) => {
-    setViewedDeviceId((prev) => (prev === deviceId ? null : deviceId));
-  };
-
-  const handleComponentCommand = (deviceId, componentType, name, state) => {
-    if (socket && isConnected) {
-      socket.send(JSON.stringify({
-        event: "component_command",
-        data: { device_id: deviceId, component_type: componentType, name, state }
-      }));
-    }
     const key = `${componentType}:${name}`;
     setComponentStates((prev) => ({
       ...prev,
@@ -219,14 +205,9 @@ export default function App() {
                       key={deviceId}
                       deviceId={deviceId}
                       data={devices[deviceId]}
-                    <DeviceItem
-                      key={deviceId}
-                      deviceId={deviceId}
-                      data={devices[deviceId]}
                       onToggleSelect={handleDeviceSelect}
                       onToggleStatus={handleDeviceStatus}
-                      onSelect={handleDeviceClick}
-                      isViewed={viewedDeviceId === deviceId}
+                      onSendCommand={handleDeviceCommand}
                     />
                   ))
                 )}
@@ -234,19 +215,12 @@ export default function App() {
             </Paper>
           </Grid>
 
-          {/* Middle/Right Area */}
-          <Grid item size={10} sx={{height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
-            
-            {/* Device Detail / Graph Workspace */}
+          <Grid item size={9} sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <DeviceDetails
-                deviceId={viewedDeviceId}
-                data={viewedDeviceId ? devices[viewedDeviceId] : null}
-                componentStates={viewedDeviceId ? componentStates[viewedDeviceId] : null}
-                onComponentCommand={handleComponentCommand}
-                onClose={() => setViewedDeviceId(null)}
-              />
-              
+              <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#fafafa', m: 2, border: '2px dashed #ddd', borderRadius: 2 }}>
+                <SessionGraph graph={sessionGraph} />
+              </Box>
+
               <Box p={2} borderTop={1} borderColor="divider" display="flex" justifyContent="center" gap={2}>
                 <Button variant="contained" color="success" startIcon={<PlayArrowIcon />} onClick={() => handleSessionAction('start')} disabled={!isConnected}>
                   Start Sesji

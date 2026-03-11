@@ -8,14 +8,14 @@
  * ZMIEŃ TE WARTOŚCI POD SWOJĄ INFRASTRUKTURĘ
  * =========================================
  */
-static const char *WIDGET_WIFI_SSID = "YOUR_WIFI_SSID";          // <- ZMIEŃ
-static const char *WIDGET_WIFI_PASS = "YOUR_WIFI_PASSWORD";      // <- ZMIEŃ
-static const char *WIDGET_DEVICE_ID = "widget_01";               // <- ZMIEŃ
-static const char *WIDGET_MQTT_HOST = "192.168.0.126";           // <- ZMIEŃ
-static const uint16_t WIDGET_MQTT_PORT = 1883;                    // <- ZMIEŃ
-static const uint32_t WIDGET_STATUS_INTERVAL_MS = 5000;           // <- ZMIEŃ (opcjonalnie)
-static const char *WIDGET_ACTUATORS_JSON = "[\"led\",\"relay\"]";   // <- ZMIEŃ
-static const char *WIDGET_EMITTERS_JSON = "[\"button\",\"sensor\"]";  // <- ZMIEŃ
+static const char *WIDGET_WIFI_SSID = "YOUR_WIFI_SSID";                // <- ZMIEŃ
+static const char *WIDGET_WIFI_PASS = "YOUR_WIFI_PASSWORD";            // <- ZMIEŃ
+static const char *WIDGET_DEVICE_ID = "widget_01";                     // <- ZMIEŃ
+static const char *WIDGET_MQTT_HOST = "192.168.1.100";                 // <- ZMIEŃ
+static const uint16_t WIDGET_MQTT_PORT = 1883;                          // <- ZMIEŃ
+static const uint32_t WIDGET_STATUS_INTERVAL_MS = 5000;                 // <- ZMIEŃ (opcjonalnie)
+static const char *WIDGET_ACTUATORS_JSON = "[\"led\",\"relay\"]";     // <- ZMIEŃ
+static const char *WIDGET_EMITTERS_JSON = "[\"button\",\"sensor\"]";    // <- ZMIEŃ
 
 static WiFiClient g_wifiClient;
 static PubSubClient g_mqttClient(g_wifiClient);
@@ -100,11 +100,20 @@ static void mqttCallback(char *topic, byte *payload, unsigned int length) {
         rawPayload += static_cast<char>(payload[i]);
     }
 
-    String actuator = extractJsonString(rawPayload, "actuator");
+    // Sprawdzamy, czy payload to na pewno komenda typu "actuator"
+    String commandType = extractJsonString(rawPayload, "command");
+    if (commandType != "actuator") {
+        // Ignorujemy wiadomość, jeśli to nie jest komenda zmiany stanu aktuatora
+        return;
+    }
 
+    // W nowym payloadzie nazwa aktuatora jest pod kluczem "name"
+    String actuator = extractJsonString(rawPayload, "name");
+
+    // W nowym payloadzie wartość logiczna jest pod kluczem "state"
     bool hasBool = false;
     bool boolValue = false;
-    hasBool = extractJsonBool(rawPayload, "value", boolValue);
+    hasBool = extractJsonBool(rawPayload, "state", boolValue);
 
     if (g_commandCallback != nullptr) {
         g_commandCallback(
