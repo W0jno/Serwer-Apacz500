@@ -4,19 +4,131 @@ from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
-from backend.managers import DeviceManager, SessionManager, ConnectionManager
-from backend.mqtt_service import MQTTService
-from backend.models import WebSocketMessage
+# --- Globalne zmienne stanu ---
+device_data: Dict[str, Dict[str, Any]] = {}
+selected_devices: Set[str] = set()
+session_active: bool = False
+mqtt_client: mqtt.Client = None
+main_event_loop = None
 
-# --- Initialization ---
-device_manager = DeviceManager()
-session_manager = SessionManager()
-connection_manager = ConnectionManager()
+# --- Menedżer połączeń WebSocket ---
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
 
-# Pass managers to MQTT Service
-mqtt_service = MQTTService(device_manager, session_manager, connection_manager)
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections[:]:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                self.disconnect(connection)
+
+manager = ConnectionManager()
+
+# --- Logika MQTT ---
+
+def on_connect(client, userdata, flags, rc):
+    print(f"Connected to MQTT broker with result code {rc}")
+    client.subscribe("+/status")
+    client.subscribe("+/sensor")
+    print("Subscribed to +/status and +/sensor topics")
+
+def on_message(client, userdata, msg):
+    try:
+        topic = msg.topic
+        parts = topic.split("/")
+        device_id = parts[0]
+        subtopic = parts[1] if len(parts) > 1 else ""
+        payload = json.loads(msg.payload.decode())
+
+        # Logika dodawania urządzeń
+        if device_id not in device_data:
+            selected_devices.add(device_id)
+            device_data[device_id] = {
+                "status": False,
+                "charge_level": 0,
+                "last_updated": datetime.now().isoformat(),
+                "topic": f"{device_id}/status",
+                "selected": True,
+                "actuators": [],
+                "emitters": [],
+                "sensors": {}
+            }
+
+        if subtopic == "status":
+            device_data[device_id].update({
+                "status": payload.get("status", False),
+                "charge_level": payload.get("charge_level", 0),
+                "last_updated": datetime.now().isoformat(),
+                "topic": topic,
+                "selected": device_id in selected_devices,
+                "actuators": payload.get("actuators", []),
+                "emitters": payload.get("emitters", [])
+            })
+        elif subtopic == "sensor":
+            device_data[device_id]["sensors"] = payload
+            device_data[device_id]["last_updated"] = datetime.now().isoformat()
+
+        # Emitowanie przez WebSocket
+        if main_event_loop and manager.active_connections:
+            message = {
+                "event": "device_update",
+                "data": {"device_id": device_id, "data": device_data[device_id]}
+            }
+            asyncio.run_coroutine_threadsafe(manager.broadcast(message), main_event_loop)
+
+    except json.JSONDecodeError:
+        print(f"Failed to decode JSON from topic {msg.topic}: {msg.payload}")
+    except Exception as e:
+        print(f"Error processing message: {e}")
+
+def publish_device_command(device_id: str, command: str, value: Any):
+    """Publikuje komendę do urządzenia przez MQTT"""
+    if mqtt_client is None:
+        print(f"MQTT client not initialized, cannot send command to {device_id}")
+        return False
+    
+    try:
+        topic = f"{device_id}/command"
+        payload = json.dumps({
+            "command": command,
+            "value": value,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        result = mqtt_client.publish(topic, payload)
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(f"Published command to {topic}: {command}={value}")
+            return True
+        else:
+            print(f"Failed to publish command to {topic}, rc={result.rc}")
+            return False
+    except Exception as e:
+        print(f"Error publishing command to {device_id}: {e}")
+        return False
+
+def init_mqtt():
+    global mqtt_client
+    mqtt_client = mqtt.Client()
+    mqtt_client.on_connect = on_connect
+    mqtt_client.on_message = on_message
+
+    try:
+        mqtt_host = os.getenv("MQTT_HOST", "localhost")
+        mqtt_client.connect(mqtt_host, 1883, 60)
+        mqtt_client.loop_start() 
+        print(f"MQTT client started, connected to {mqtt_host}")
+    except Exception as e:
+        print(f"Failed to connect to MQTT broker: {e}")
 
 # --- Background Tasks ---
 async def cleanup_old_devices_task():

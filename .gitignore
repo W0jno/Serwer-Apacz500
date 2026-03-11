@@ -19,9 +19,15 @@ env
 docs_build
 site_build
 venv
+.venv
 docs.zip
 archive.zip
 
+# ESP-IDF build output
+widget_esp/build/
+
+mosquitto.log
+mosquitto.db
 # vim temporary files
 *~
 .*.sw?

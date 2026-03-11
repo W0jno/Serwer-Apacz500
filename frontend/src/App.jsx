@@ -17,6 +17,7 @@ import {
 } from '@mui/icons-material';
 
 import DeviceItem from '../components/DeviceItem.jsx'
+import DeviceDetails from '../components/DeviceDetails.jsx'
 import Header from '../components/Header.jsx'
 import SessionGraph from '../components/SessionGraph.jsx';
 
@@ -167,6 +168,12 @@ export default function App() {
         data: {}
       }));
     }
+    const key = `${componentType}:${name}`;
+    setComponentStates((prev) => ({
+      ...prev,
+      [deviceId]: { ...(prev[deviceId] || {}), [key]: state }
+    }));
+    addLog(`${deviceId} → ${componentType} ${name}: ${state ? 'ON' : 'OFF'}`);
   };
 
   return (
