@@ -1,13 +1,8 @@
-import json
-import os
 import asyncio
-from datetime import datetime
-from typing import List, Dict, Set, Any
 from contextlib import asynccontextmanager
+from datetime import datetime
 
-import paho.mqtt.client as mqtt
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # --- Globalne zmienne stanu ---
@@ -135,47 +130,35 @@ def init_mqtt():
     except Exception as e:
         print(f"Failed to connect to MQTT broker: {e}")
 
-# --- Zadania w tle (Cleanup) ---
-
+# --- Background Tasks ---
 async def cleanup_old_devices_task():
     print("Starting cleanup task...")
     while True:
         try:
-            current_time = datetime.now()
-            devices_to_remove = []
-
-            for device_id, data in list(device_data.items()):
-                last_updated = datetime.fromisoformat(data["last_updated"])
-                if (current_time - last_updated).total_seconds() > 300:
-                    devices_to_remove.append(device_id)
-
-            for device_id in devices_to_remove:
-                del device_data[device_id]
-                await manager.broadcast({
-                    "event": "device_removed",
-                    "data": {"device_id": device_id}
-                })
-                print(f"Removed inactive device: {device_id}")
+            removed_ids = device_manager.cleanup_inactive(timeout_seconds=300)
             
+            for device_id in removed_ids:
+                print(f"Removed inactive device: {device_id}")
+                await connection_manager.broadcast(
+                    WebSocketMessage(
+                        event="device_removed",
+                        data={"device_id": device_id}
+                    )
+                )
         except Exception as e:
             print(f"Error in cleanup task: {e}")
-        
+
         await asyncio.sleep(60)
 
-# --- Konfiguracja FastAPI Lifecycle ---
-
+# --- FastAPI Lifecycle ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global main_event_loop
-    main_event_loop = asyncio.get_running_loop()
-    
-    init_mqtt()
+    mqtt_service.start()
     cleanup_task = asyncio.create_task(cleanup_old_devices_task())
-    
+
     yield
-    
-    if mqtt_client:
-        mqtt_client.loop_stop()
+
+    mqtt_service.stop()
     cleanup_task.cancel()
     print("Shutdown complete")
 
@@ -189,41 +172,65 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Endpointy HTTP (API) ---
+# --- HTTP Endpoints ---
 
 @app.get("/api/devices")
 async def get_devices():
-    return JSONResponse(device_data)
+    return JSONResponse(device_manager.get_all_devices())
 
 @app.get("/api/selected-devices")
 async def get_selected_devices():
-    return JSONResponse(list(selected_devices))
+    return JSONResponse(device_manager.get_selected_ids())
 
-# --- Endpoint WebSocket ---
+# --- WebSocket Endpoint ---
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    global session_active 
-    
-    await manager.connect(websocket)
-    client_id = websocket.client.host
+    await connection_manager.connect(websocket)
+    client_id = websocket.client.host if websocket.client else "unknown"
     print(f"Client connected: {client_id}")
-    
+
     try:
+        # Prune inactive devices (older than 30s) on connection to ensure fresh view
+        removed_ids = device_manager.cleanup_inactive(timeout_seconds=30)
+        for device_id in removed_ids:
+            print(f"Removed inactive device (refresh cleanup): {device_id}")
+            await connection_manager.broadcast(
+                WebSocketMessage(
+                    event="device_removed",
+                    data={"device_id": device_id}
+                )
+            )
+
+        # Initial State Sync
         await websocket.send_json({
             "event": "connection_confirmed",
-            "data": {"status": "connected", "server_time": datetime.now().isoformat()}
-        })
-        await websocket.send_json({
-            "event": "devices_data",
-            "data": device_data
+            "data": {
+                "status": "connected",
+                "server_time": datetime.now().isoformat(),
+            },
         })
         
+        # Send current devices
         await websocket.send_json({
-            "event": "session_status",
-            "data": {"active": session_active, "action": "status_check"}
+            "event": "devices_data",
+            "data": device_manager.get_all_devices()
         })
 
+        # Send session status
+        await websocket.send_json({
+            "event": "session_status",
+            "data": {"active": session_manager.active, "action": "status_check"},
+        })
+        
+        # If session active, send matrix
+        if session_manager.active:
+             await websocket.send_json({
+                "event": "session_matrix_update",
+                "data": session_manager.matrix.model_dump(mode='json'),
+            })
+
+        # Command Loop
         while True:
             data = await websocket.receive_json()
             event_type = data.get("event")
@@ -232,25 +239,30 @@ async def websocket_endpoint(websocket: WebSocket):
             if event_type == "device_selected":
                 device_id = payload.get("device_id")
                 is_selected = payload.get("selected", False)
-
-                if is_selected:
-                    selected_devices.add(device_id)
-                else:
-                    selected_devices.discard(device_id)
-
-                if device_id in device_data:
-                    device_data[device_id]["selected"] = is_selected
-
-                print(f"Device {device_id} {'selected' if is_selected else 'deselected'}")
                 
+                device_manager.set_selection(device_id, is_selected)
+                print(f"Device {device_id} {'selected' if is_selected else 'deselected'}")
+
             elif event_type == "device_status_change":
                 device_id = payload.get("device_id")
-                new_status = payload.get("status", False)
+                new_status = payload.get("status", True)
                 
-                device_data[device_id]["status"] = new_status
-                # Publikujemy komendę przez MQTT
-                success = publish_device_command(device_id, "set_status", new_status)
-                
+                success = mqtt_service.publish_command(device_id, {"state": new_status})
+                if success and device_id in device_manager.devices:
+                    device_manager.devices[device_id].status = new_status
+                    print(f"Sent status command to {device_id}: {'ON' if new_status else 'OFF'} (Optimistic update)")
+
+            elif event_type == "device_command":
+                device_id = payload.get("device_id")
+                actuator = payload.get("actuator", "default")
+                value = payload.get("value")
+
+                command_payload = {
+                    "actuator": actuator,
+                    "value": value,
+                }
+
+                success = mqtt_service.publish_command(device_id, command_payload)
                 if success:
                     print(f"Sent status command to {device_id}: {'ON' if new_status else 'OFF'}")
                 else:
@@ -277,27 +289,51 @@ async def websocket_endpoint(websocket: WebSocket):
                         print(f"Failed to send {component_type} command to {device_id}")
 
             elif event_type == "start_session":
-                session_active = True
-                print("Session started")
-                await manager.broadcast({
-                    "event": "session_status", 
-                    "data": {"active": True, "action": "started"}
-                })
+                selected_ids = device_manager.get_selected_ids()
+                if not selected_ids:
+                    print("No devices selected for session.")
+                    continue
+                
+                matrix = session_manager.start_session(selected_ids)
+                print("Session started.")
+                print("Matrix:", matrix.model_dump(mode='json'))
+
+                await connection_manager.broadcast(
+                    WebSocketMessage(
+                        event="session_status",
+                        data={"active": True, "action": "started"}
+                    )
+                )
+                await connection_manager.broadcast(
+                    WebSocketMessage(
+                        event="session_matrix_update",
+                        data=matrix.model_dump(mode='json')
+                    )
+                )
 
             elif event_type == "stop_session":
-                session_active = False
+                session_manager.stop_session()
                 print("Session stopped")
-                await manager.broadcast({
-                    "event": "session_status", 
-                    "data": {"active": False, "action": "stopped"}
-                })
+                
+                await connection_manager.broadcast(
+                    WebSocketMessage(
+                        event="session_status",
+                        data={"active": False, "action": "stopped"}
+                    )
+                )
+                await connection_manager.broadcast(
+                    WebSocketMessage(
+                        event="session_matrix_update",
+                        data={"devices": [], "matrix": []}
+                    )
+                )
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        connection_manager.disconnect(websocket)
         print(f"Client disconnected: {client_id}")
     except Exception as e:
         print(f"WebSocket error: {e}")
-        manager.disconnect(websocket)
+        connection_manager.disconnect(websocket)
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,23 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
-  AppBar,
-  Toolbar,
   Typography,
   Paper,
   Grid,
-  Card,
-  CardContent,
-  Checkbox,
-  FormControlLabel,
   Button,
-  LinearProgress,
   List,
   ListItem,
   ListItemText,
-  Chip,
   Container,
-  Stack,
   CircularProgress
 } from '@mui/material';
 import {
@@ -28,11 +19,11 @@ import {
 import DeviceItem from '../components/DeviceItem.jsx'
 import DeviceDetails from '../components/DeviceDetails.jsx'
 import Header from '../components/Header.jsx'
+import SessionGraph from '../components/SessionGraph.jsx';
 
 const getTimestamp = () => new Date().toLocaleTimeString();
 
 export default function App() {
-  const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [devices, setDevices] = useState({});
   const [logs, setLogs] = useState([]);
@@ -41,6 +32,7 @@ export default function App() {
   const [componentStates, setComponentStates] = useState({});
   
   const logEndRef = useRef(null);
+  const socketRef = useRef(null);
 
   const addLog = useCallback((message) => {
     setLogs((prev) => [...prev, { time: getTimestamp(), message }]);
@@ -50,25 +42,24 @@ export default function App() {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // --- WebSocket Connection Logic ---
   useEffect(() => {
     const wsUrl = `ws://${window.location.hostname}:5000/ws`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       setIsConnected(true);
-      addLog("Connected to server");
+      addLog('Connected to server');
       setLoading(false);
     };
 
     ws.onclose = () => {
       setIsConnected(false);
-      addLog("Disconnected from server");
+      addLog('Disconnected from server');
     };
 
     ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      addLog("Connection error occurred");
+      console.error('WebSocket error:', error);
+      addLog('Connection error occurred');
       setIsConnected(false);
     };
 
@@ -81,7 +72,7 @@ export default function App() {
           case 'connection_confirmed':
             addLog(`Connection confirmed - Server time: ${data.server_time}`);
             break;
-            
+
           case 'devices_data':
             setDevices(data);
             addLog(`Loaded ${Object.keys(data).length} devices`);
@@ -93,8 +84,7 @@ export default function App() {
               ...prev,
               [data.device_id]: data.data
             }));
-            const status = data.data.status ? true : false;
-            addLog(`${data.device_id}: ${status}, ${data.data.charge_level}%`);
+            addLog(`${data.device_id}: ${data.data.status ? 'online' : 'offline'}, ${data.data.charge_level}%`);
             break;
 
           case 'device_removed':
@@ -109,31 +99,35 @@ export default function App() {
           case 'session_status':
             addLog(`Session ${data.action} - Status: ${data.active ? 'active' : 'inactive'}`);
             break;
-            
+
+          case 'session_matrix_update':
+            setSessionGraph(data);
+            addLog('Session matrix updated');
+            break;
+
           default:
-            console.log("Unknown event:", eventName);
+            console.log('Unknown event:', eventName);
         }
       } catch (e) {
-        console.error("Error parsing message", e);
+        console.error('Error parsing message', e);
       }
     };
 
-    setSocket(ws);
+    socketRef.current = ws;
 
     return () => {
       ws.close();
+      socketRef.current = null;
     };
   }, [addLog]);
 
-  // --- Actions ---
-
   const handleDeviceSelect = (deviceId, isSelected) => {
-    if (socket && isConnected) {
-      socket.send(JSON.stringify({
-        event: "device_selected",
+    if (socketRef.current && isConnected) {
+      socketRef.current.send(JSON.stringify({
+        event: 'device_selected',
         data: { device_id: deviceId, selected: isSelected }
       }));
-      // Aktualizujemy lokalnie optymistycznie
+
       setDevices(prev => ({
         ...prev,
         [deviceId]: { ...prev[deviceId], selected: isSelected }
@@ -142,15 +136,14 @@ export default function App() {
   };
 
   const handleDeviceStatus = (deviceId, newStatus) => {
-    if (socket && isConnected) {
-      // Poprawiona nazwa eventu i struktura danych
-      socket.send(JSON.stringify({
-        event: "device_status_change",
+    if (socketRef.current && isConnected) {
+      socketRef.current.send(JSON.stringify({
+        event: 'device_status_change',
         data: { device_id: deviceId, status: newStatus }
       }));
-      
+
       addLog(`Sending status command to ${deviceId}: ${newStatus ? 'ON' : 'OFF'}`);
-      
+
       setDevices(prev => ({
         ...prev,
         [deviceId]: { ...prev[deviceId], status: newStatus }
@@ -158,10 +151,21 @@ export default function App() {
     }
   };
 
+  const handleDeviceCommand = (deviceId, actuator, value) => {
+    if (socketRef.current && isConnected) {
+      socketRef.current.send(JSON.stringify({
+        event: 'device_command',
+        data: { device_id: deviceId, actuator, value }
+      }));
+
+      addLog(`Command -> ${deviceId}: actuator=${actuator}, value=${JSON.stringify(value)}`);
+    }
+  };
+
   const handleSessionAction = (action) => {
-    if (socket && isConnected) {
-      socket.send(JSON.stringify({
-        event: action === 'start' ? "start_session" : "stop_session",
+    if (socketRef.current && isConnected) {
+      socketRef.current.send(JSON.stringify({
+        event: action === 'start' ? 'start_session' : 'stop_session',
         data: {}
       }));
     }
@@ -187,20 +191,17 @@ export default function App() {
   };
 
   return (
-    <Box sx={{ flexGrow: 1, height: '100vh', width:'100vw', display: 'flex', flexDirection: 'column', bgcolor: '#f5f5f5' }}>
-      
-      <Header isConnected={isConnected}></Header>
-      
+    <Box sx={{ flexGrow: 1, height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', bgcolor: '#f5f5f5' }}>
+      <Header isConnected={isConnected} />
+
       <Container maxWidth={false} sx={{ flexGrow: 1, py: 2, overflow: 'hidden' }}>
-        <Grid container spacing={2} sx={{ height: '100%', width:'100%' }}>
-          
-          {/* Left Panel: Devices */}
-          <Grid item size={2} sx={{ height: '100%' }}>
+        <Grid container spacing={2} sx={{ height: '100%', width: '100%' }}>
+          <Grid item size={3} sx={{ height: '100%' }}>
             <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <Box p={2} borderBottom={1} borderColor="divider">
                 <Typography variant="h6">Devices</Typography>
               </Box>
-              
+
               <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, bgcolor: '#fafafa' }}>
                 {loading ? (
                   <Box display="flex" flexDirection="column" alignItems="center" mt={4}>
@@ -214,6 +215,10 @@ export default function App() {
                   </Box>
                 ) : (
                   Object.keys(devices).map((deviceId) => (
+                    <DeviceItem
+                      key={deviceId}
+                      deviceId={deviceId}
+                      data={devices[deviceId]}
                     <DeviceItem
                       key={deviceId}
                       deviceId={deviceId}
@@ -243,28 +248,15 @@ export default function App() {
               />
               
               <Box p={2} borderTop={1} borderColor="divider" display="flex" justifyContent="center" gap={2}>
-                <Button 
-                  variant="contained" 
-                  color="success" 
-                  startIcon={<PlayArrowIcon />}
-                  onClick={() => handleSessionAction('start')}
-                  disabled={!isConnected}
-                >
+                <Button variant="contained" color="success" startIcon={<PlayArrowIcon />} onClick={() => handleSessionAction('start')} disabled={!isConnected}>
                   Start Sesji
                 </Button>
-                <Button 
-                  variant="contained" 
-                  color="error" 
-                  startIcon={<StopIcon />}
-                  onClick={() => handleSessionAction('stop')}
-                  disabled={!isConnected}
-                >
+                <Button variant="contained" color="error" startIcon={<StopIcon />} onClick={() => handleSessionAction('stop')} disabled={!isConnected}>
                   Zatrzymanie Sesji
                 </Button>
               </Box>
             </Paper>
 
-            {/* Log Container */}
             <Paper sx={{ height: '200px', display: 'flex', flexDirection: 'column' }}>
               <Box p={1} px={2} borderBottom={1} borderColor="divider" bgcolor="#f8f9fa">
                 <Typography variant="subtitle2">Connection Log</Typography>
@@ -272,13 +264,13 @@ export default function App() {
               <List dense sx={{ flexGrow: 1, overflowY: 'auto', bgcolor: '#fafafa', fontFamily: 'monospace' }}>
                 {logs.map((log, index) => (
                   <ListItem key={index} sx={{ py: 0 }}>
-                    <ListItemText 
+                    <ListItemText
                       primary={
                         <Typography variant="body2" component="span" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
                           <Box component="span" color="text.secondary" mr={1}>[{log.time}]</Box>
                           {log.message}
                         </Typography>
-                      } 
+                      }
                     />
                   </ListItem>
                 ))}
@@ -286,7 +278,6 @@ export default function App() {
               </List>
             </Paper>
           </Grid>
-
         </Grid>
       </Container>
     </Box>

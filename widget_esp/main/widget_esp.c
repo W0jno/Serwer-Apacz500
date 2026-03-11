@@ -1,5 +1,7 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -8,7 +10,6 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "button_led.h"
 #include "mqtt_client.h"
 #include "cJSON.h"
 
@@ -26,9 +27,91 @@ static const char *TAG = "widget_esp";
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 static esp_mqtt_client_handle_t mqtt_client = NULL;
-static char effector_value[256] = "No data received";
+static char last_command_payload[256] = "No command received";
 static bool mqtt_connected = false;
-static int last_button_state = -1;  // Track last sent button state for change detection
+static int last_button_state = -1;
+
+static cJSON *csv_to_json_array(const char *csv)
+{
+    cJSON *arr = cJSON_CreateArray();
+    if (arr == NULL) {
+        return NULL;
+    }
+
+    char *copy = strdup(csv);
+    if (copy == NULL) {
+        cJSON_Delete(arr);
+        return NULL;
+    }
+
+    char *token = strtok(copy, ",");
+    while (token != NULL) {
+        while (*token == ' ') {
+            token++;
+        }
+
+        size_t len = strlen(token);
+        while (len > 0 && (token[len - 1] == ' ' || token[len - 1] == '\n' || token[len - 1] == '\r' || token[len - 1] == '\t')) {
+            token[len - 1] = '\0';
+            len--;
+        }
+
+        if (len > 0) {
+            cJSON_AddItemToArray(arr, cJSON_CreateString(token));
+        }
+
+        token = strtok(NULL, ",");
+    }
+
+    free(copy);
+    return arr;
+}
+
+static void publish_status(bool online)
+{
+    if (mqtt_client == NULL) {
+        return;
+    }
+
+    char topic[64];
+    snprintf(topic, sizeof(topic), "%s/status", DEVICE_ID);
+
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        ESP_LOGE(TAG, "Failed to create JSON for status");
+        return;
+    }
+
+    cJSON_AddBoolToObject(root, "status", online);
+    cJSON_AddNumberToObject(root, "charge_level", 100);
+
+    cJSON *actuators = csv_to_json_array(CONFIG_WIDGET_ACTUATORS_CSV);
+    cJSON *emitters = csv_to_json_array(CONFIG_WIDGET_EMITTERS_CSV);
+
+    if (actuators == NULL || emitters == NULL) {
+        ESP_LOGE(TAG, "Failed to build actuators/emitters arrays");
+        cJSON_Delete(actuators);
+        cJSON_Delete(emitters);
+        cJSON_Delete(root);
+        return;
+    }
+
+    cJSON_AddItemToObject(root, "actuators", actuators);
+    cJSON_AddItemToObject(root, "emitters", emitters);
+
+    char *payload = cJSON_PrintUnformatted(root);
+    if (payload == NULL) {
+        ESP_LOGE(TAG, "Failed to serialize status JSON");
+        cJSON_Delete(root);
+        return;
+    }
+
+    int msg_id = esp_mqtt_client_publish(mqtt_client, topic, payload, 0, 1, 1);
+    ESP_LOGI(TAG, "Published status to %s (msg_id=%d): %s", topic, msg_id, payload);
+
+    cJSON_free(payload);
+    cJSON_Delete(root);
+}
 
 // WiFi event handler
 static void event_handler(void* arg, esp_event_base_t event_base,
@@ -51,21 +134,9 @@ static void event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Got IP address: " IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
 
-        // Get WiFi signal strength (RSSI)
         wifi_ap_record_t ap_info;
         if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
             ESP_LOGI(TAG, "WiFi Signal Strength (RSSI): %d dBm", ap_info.rssi);
-
-            // Calculate connection quality (0-100%)
-            int quality;
-            if (ap_info.rssi >= -50) {
-                quality = 100;
-            } else if (ap_info.rssi <= -100) {
-                quality = 0;
-            } else {
-                quality = 2 * (ap_info.rssi + 100);
-            }
-            ESP_LOGI(TAG, "WiFi Connection Quality: %d%%", quality);
         } else {
             ESP_LOGW(TAG, "Failed to get WiFi AP info");
         }
@@ -86,7 +157,6 @@ void wifi_init_sta(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    // Register event handlers
     esp_event_handler_instance_t instance_any_id;
     esp_event_handler_instance_t instance_got_ip;
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
@@ -100,7 +170,6 @@ void wifi_init_sta(void)
                                                         NULL,
                                                         &instance_got_ip));
 
-    // Configure WiFi
     wifi_config_t wifi_config = {
         .sta = {
             .ssid = WIFI_SSID,
@@ -119,7 +188,6 @@ void wifi_init_sta(void)
 
     ESP_LOGI(TAG, "WiFi initialization finished.");
 
-    // Wait for connection or failure
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
             WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
             pdFALSE,
@@ -135,35 +203,45 @@ void wifi_init_sta(void)
     }
 }
 
+static void handle_command(cJSON *json)
+{
+    cJSON *state = cJSON_GetObjectItem(json, "state");
+    if (cJSON_IsBool(state)) {
+        int led_state = cJSON_IsTrue(state) ? 1 : 0;
+        button_led_set_led(led_state);
+        ESP_LOGI(TAG, "Backward-compatible state command -> LED: %s", led_state ? "ON" : "OFF");
+    }
+
+    cJSON *actuator = cJSON_GetObjectItem(json, "actuator");
+    cJSON *value = cJSON_GetObjectItem(json, "value");
+
+    if (cJSON_IsString(actuator) && value != NULL) {
+        ESP_LOGI(TAG, "Generic command actuator=%s", actuator->valuestring);
+
+        if (strcmp(actuator->valuestring, "led") == 0) {
+            if (cJSON_IsBool(value)) {
+                button_led_set_led(cJSON_IsTrue(value) ? 1 : 0);
+            } else if (cJSON_IsNumber(value)) {
+                button_led_set_led(value->valueint ? 1 : 0);
+            }
+        }
+    }
+}
+
 // MQTT event handler
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     esp_mqtt_event_handle_t event = event_data;
-    char effector_topic[64];
-    snprintf(effector_topic, sizeof(effector_topic), "%s/effector", DEVICE_ID);
+    char command_topic[64];
+    snprintf(command_topic, sizeof(command_topic), "%s/command", DEVICE_ID);
 
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         mqtt_connected = true;
-        // Subscribe to effector topic
-        esp_mqtt_client_subscribe(mqtt_client, effector_topic, 0);
-        ESP_LOGI(TAG, "Subscribed to topic: %s", effector_topic);
-
-        // Send initial status message on connect
-        {
-            char status_topic[64];
-            char status_message[128];
-            snprintf(status_topic, sizeof(status_topic), "%s/status", DEVICE_ID);
-            snprintf(status_message, sizeof(status_message), "{"
-                "\"status\": true,"
-                "\"charge_level\": 100,"
-                "\"actuators\": \"button\","
-                "\"emitters\": \"led\" "
-                "}");
-            esp_mqtt_client_publish(mqtt_client, status_topic, status_message, 0, 1, 0);
-            ESP_LOGI(TAG, "Published initial status on connect");
-        }
+        esp_mqtt_client_subscribe(mqtt_client, command_topic, 0);
+        ESP_LOGI(TAG, "Subscribed to topic: %s", command_topic);
+        publish_status(true);
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGW(TAG, "MQTT_EVENT_DISCONNECTED - will attempt reconnection automatically");
@@ -173,33 +251,22 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_DATA:
-        ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-        ESP_LOGI(TAG, "Topic: %.*s", event->topic_len, event->topic);
-        ESP_LOGI(TAG, "Data: %.*s", event->data_len, event->data);
-        // Store effector value
-        if (event->data_len < sizeof(effector_value)) {
-            memcpy(effector_value, event->data, event->data_len);
-            effector_value[event->data_len] = '\0';
+        ESP_LOGI(TAG, "MQTT_EVENT_DATA topic=%.*s data=%.*s", event->topic_len, event->topic, event->data_len, event->data);
 
-            // Parse JSON and control LED if it's an effector message
+        if (event->data_len < sizeof(last_command_payload)) {
+            memcpy(last_command_payload, event->data, event->data_len);
+            last_command_payload[event->data_len] = '\0';
+
             cJSON *json = cJSON_ParseWithLength(event->data, event->data_len);
             if (json != NULL) {
-                cJSON *state = cJSON_GetObjectItem(json, "state");
-                if (cJSON_IsBool(state)) {
-                    int led_state = cJSON_IsTrue(state) ? 1 : 0;
-                    button_led_set_led(led_state);
-                    ESP_LOGI(TAG, "LED set to: %s", led_state ? "ON" : "OFF");
-                }
+                handle_command(json);
                 cJSON_Delete(json);
             } else {
-                ESP_LOGE(TAG, "Failed to parse JSON");
+                ESP_LOGE(TAG, "Failed to parse JSON command");
             }
         }
         break;
     case MQTT_EVENT_PUBLISHED:
-        /* Here we get actual confirmations from the server that
-         * something got published.
-         */
         ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_ERROR:
@@ -239,7 +306,6 @@ static void mqtt_app_start(void)
 
 void app_main(void)
 {
-    // Initialize NVS (required for WiFi)
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -250,60 +316,49 @@ void app_main(void)
     ESP_LOGI(TAG, "Starting WiFi connection...");
     wifi_init_sta();
 
-    // Start MQTT client
     mqtt_app_start();
-
-    // Initialize GPIO for button and LED
     button_led_init();
 
-    // Main application loop - publish status and sensor messages
-    char status_topic[64];
     char sensor_topic[64];
-    char message[128];
-    snprintf(status_topic, sizeof(status_topic), "%s/status", DEVICE_ID);
+    char message[160];
     snprintf(sensor_topic, sizeof(sensor_topic), "%s/sensor", DEVICE_ID);
 
     TickType_t last_status_time = xTaskGetTickCount();
-    TickType_t last_effector_print_time = xTaskGetTickCount();
-    const TickType_t status_interval = pdMS_TO_TICKS(10000);  // 10 seconds
-    const TickType_t effector_print_interval = pdMS_TO_TICKS(5000);  // 5 seconds
+    TickType_t last_command_print_time = xTaskGetTickCount();
+    const TickType_t status_interval = pdMS_TO_TICKS(CONFIG_WIDGET_STATUS_INTERVAL_MS);
+    const TickType_t command_print_interval = pdMS_TO_TICKS(5000);
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(100));
         TickType_t current_time = xTaskGetTickCount();
 
         if (mqtt_connected) {
-            // Publish sensor data (button state) only when it changes
             int button_state = button_led_get_state();
             if (button_state != last_button_state) {
-                snprintf(message, sizeof(message), "{\"button_state\": %d}", button_state);
-                esp_mqtt_client_publish(mqtt_client, sensor_topic, message, 0, 0, 0);  // QoS 0 for frequent messages
+                snprintf(
+                    message,
+                    sizeof(message),
+                    "{\"emitter\":\"button\",\"sensor_value\":%d,\"value\":%d}",
+                    button_state,
+                    button_state
+                );
+                esp_mqtt_client_publish(mqtt_client, sensor_topic, message, 0, 0, 0);
                 ESP_LOGI(TAG, "Button state changed: %d -> %d", last_button_state, button_state);
                 last_button_state = button_state;
             }
 
-            // Publish status message every 10 seconds
             if ((current_time - last_status_time) >= status_interval) {
-                snprintf(message, sizeof(message), "{"
-                    "\"status\": true,"
-                    "\"charge_level\": 100,"
-                    "\"actuators\": \"button\","
-                    "\"emitters\": \"led\" "
-                   " }");
-                int msg_id = esp_mqtt_client_publish(mqtt_client, status_topic, message, 0, 1, 0);
-                ESP_LOGI(TAG, "Published to %s: %s (msg_id=%d)", status_topic, message, msg_id);
+                publish_status(true);
                 last_status_time = current_time;
             }
 
-            // Print effector value every 5 seconds
-            if ((current_time - last_effector_print_time) >= effector_print_interval) {
-                ESP_LOGI(TAG, "Effector value: %s", effector_value);
-                last_effector_print_time = current_time;
+            if ((current_time - last_command_print_time) >= command_print_interval) {
+                ESP_LOGI(TAG, "Last command payload: %s", last_command_payload);
+                last_command_print_time = current_time;
             }
         } else {
-            // Reset timing when reconnected to avoid burst of messages
             last_status_time = current_time;
-            last_button_state = -1;  // Reset to force sending state on reconnect
+            last_button_state = -1;
         }
     }
 }
