@@ -47,3 +47,8 @@ Szczegóły konfiguracji LAN i portów są w `docs/widget_integration.md` (sekcj
 
 - Gotowy moduł do wpięcia w istniejący projekt zespołu: `widget_dropin/`
 - Instrukcja krok po kroku: `widget_dropin/README.md`
+
+## Szybka integracja dla PlatformIO + Arduino framework
+
+- Gotowy moduł: `widget_arduino_dropin/`
+- Instrukcja krok po kroku: `widget_arduino_dropin/README.md`

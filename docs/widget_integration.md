@@ -467,3 +467,55 @@ Opcjonalne zmienne środowiskowe:
 - `MQTT_PORT` (domyślnie `1883`)
 - `WS_URL` (domyślnie `ws://localhost:5000/ws`)
 - `API_DEVICES_URL` (domyślnie `http://localhost:5000/api/devices`)
+
+
+## 4D. Integracja dla zespołów używających Arduino framework (PlatformIO)
+
+Jeżeli zespół rozwija firmware w **PlatformIO + Arduino framework**, należy użyć gotowego modułu z folderu `widget_arduino_dropin/`.
+
+### 4D.1. Skopiowanie plików
+
+Do projektu programisty skopiować:
+
+- `widget_arduino_dropin/widget_bridge_arduino.h` -> `include/widget_bridge_arduino.h`
+- `widget_arduino_dropin/widget_bridge_arduino.cpp` -> `src/widget_bridge_arduino.cpp`
+
+### 4D.2. Konfiguracja `platformio.ini`
+
+W `platformio.ini` dodać bibliotekę:
+
+```ini
+lib_deps =
+  knolleary/PubSubClient
+```
+
+### 4D.3. Uzupełnienie danych połączeniowych
+
+W pliku `src/widget_bridge_arduino.cpp` należy zmienić pola oznaczone komentarzem `// <- ZMIEŃ`:
+
+- SSID i hasło Wi‑Fi,
+- `WIDGET_DEVICE_ID`,
+- adres i port brokera MQTT,
+- listy `actuators` i `emitters`.
+
+### 4D.4. Wpięcie modułu w `main.cpp`
+
+W `setup()`:
+
+1. zarejestrować callback `widgetBridgeArduinoSetCommandCallback(...)`,
+2. wywołać `widgetBridgeArduinoInit()`.
+
+W `loop()`:
+
+1. wywoływać `widgetBridgeArduinoLoop()` w każdej iteracji,
+2. publikować sensory przez `widgetBridgeArduinoPublishSensor(...)` w momentach wystąpienia zdarzeń.
+
+### 4D.5. Build i upload
+
+```bash
+pio run
+pio run -t upload
+pio device monitor
+```
+
+Szczegółowa instrukcja krok po kroku znajduje się w: `widget_arduino_dropin/README.md`.
