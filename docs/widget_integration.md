@@ -175,6 +175,168 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ---
 
+
+## 4A. Uruchomienie ESP-IDF i pliku konfiguracyjnego (`menuconfig`)
+
+`menuconfig` nie jest osobnym plikiem do ręcznego uruchamiania — to interfejs konfiguracji projektu ESP-IDF,
+który zapisuje ustawienia do `sdkconfig` w katalogu `widget_esp/`.
+
+### 4A.1. Instalacja i aktywacja ESP-IDF
+
+Przykładowy flow (Linux/macOS):
+
+```bash
+# 1) Pobierz ESP-IDF
+mkdir -p ~/esp
+cd ~/esp
+git clone --recursive https://github.com/espressif/esp-idf.git
+cd esp-idf
+
+# 2) Zainstaluj narzędzia
+./install.sh esp32
+
+# 3) Aktywuj środowisko (powtarzaj w każdym nowym terminalu)
+source ./export.sh
+```
+
+### 4A.2. Wejście do projektu widgeta
+
+```bash
+cd /workspace/Serwer-Apacz500/widget_esp
+```
+
+### 4A.3. Uruchomienie konfiguratora
+
+```bash
+idf.py set-target esp32
+idf.py menuconfig
+```
+
+Po wejściu do menu przejdź do: **Widget ESP32 config** i ustaw:
+- `Widget device ID`
+- `WiFi SSID`
+- `WiFi password`
+- `MQTT broker URI`
+- `Actuators list (CSV)`
+- `Emitters list (CSV)`
+- `Status publish interval (ms)`
+
+Po zapisaniu konfiguracji ESP-IDF zapisze ustawienia do pliku `widget_esp/sdkconfig`.
+
+### 4A.4. Build i flash po konfiguracji
+
+```bash
+idf.py build
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+
+## 4B. Integracja w projekcie programisty korzystającym z PlatformIO (krok po kroku)
+
+Poniższa procedura zakłada, że zespół ma już własny projekt widgeta w PlatformIO i chce dodać konfigurację Wi‑Fi/MQTT bez utraty własnej logiki.
+
+### 4B.1. Struktura docelowa projektu PlatformIO
+
+W typowym projekcie PlatformIO (ESP-IDF) powinny istnieć:
+
+- `platformio.ini`
+- `src/main.c` (lub `src/main.cpp`) — logika zespołu
+- `main/Kconfig.projbuild` — konfiguracja `menuconfig` (jeżeli nie ma, należy utworzyć)
+
+### 4B.2. Ustawienie frameworku w PlatformIO
+
+W pliku `platformio.ini` ustaw środowisko ESP-IDF:
+
+```ini
+[env:esp32dev]
+platform = espressif32
+board = esp32dev
+framework = espidf
+monitor_speed = 115200
+```
+
+### 4B.3. Skopiowanie definicji opcji konfiguracyjnych
+
+1. Skopiuj plik:
+
+- z: `widget_esp/main/Kconfig.projbuild`
+- do: `<TWOJ_PROJEKT_PLATFORMIO>/main/Kconfig.projbuild`
+
+2. Jeżeli w projekcie docelowym istnieje już `main/Kconfig.projbuild`, nie nadpisuj go w całości —
+   przenieś sekcje `config WIDGET_*` i scal ręcznie.
+
+Plik źródłowy opcji w tym repo:
+- `WIDGET_DEVICE_ID`
+- `WIDGET_WIFI_SSID`
+- `WIDGET_WIFI_PASS`
+- `WIDGET_MQTT_BROKER_URI`
+- `WIDGET_ACTUATORS_CSV`
+- `WIDGET_EMITTERS_CSV`
+- `WIDGET_STATUS_INTERVAL_MS`
+
+### 4B.4. Podłączenie `CONFIG_*` w kodzie zespołu
+
+W kodzie firmware (np. `src/main.c`) należy:
+
+1. dodać:
+
+```c
+#include "sdkconfig.h"
+```
+
+2. użyć makr `CONFIG_*` zamiast hardcodów, np.:
+
+```c
+#define DEVICE_ID CONFIG_WIDGET_DEVICE_ID
+#define WIFI_SSID CONFIG_WIDGET_WIFI_SSID
+#define WIFI_PASS CONFIG_WIDGET_WIFI_PASS
+#define MQTT_BROKER_URI CONFIG_WIDGET_MQTT_BROKER_URI
+```
+
+Referencja użycia w tym repo: `widget_esp/main/widget_esp.c`.
+
+### 4B.5. Konfiguracja w menuconfig (PlatformIO)
+
+W katalogu projektu PlatformIO uruchom:
+
+```bash
+pio run -t menuconfig
+```
+
+Następnie przejdź do sekcji `Widget ESP32 config` i uzupełnij dane:
+- `Widget device ID`
+- `WiFi SSID`
+- `WiFi password`
+- `MQTT broker URI` (np. `mqtt://192.168.0.126`)
+- pozostałe opcje według potrzeb
+
+### 4B.6. Build, upload, monitor
+
+```bash
+pio run
+pio run -t upload
+pio device monitor
+```
+
+### 4B.7. Co **nie** nadpisuje logiki zespołu
+
+- `pio run -t menuconfig` zmienia tylko konfigurację (`sdkconfig`) projektu,
+- logika biznesowa w `src/main.c` / innych plikach C pozostaje taka, jaką napisał zespół,
+- program na ESP zostanie podmieniony dopiero przy `upload` (standardowe wgrywanie firmware).
+
+### 4B.8. Minimalna lista rzeczy do przeniesienia z tego repo
+
+Jeśli zespół chce tylko konfigurację i integrację MQTT, a nie cały firmware referencyjny:
+
+1. **Obowiązkowo** przenieść:
+   - `widget_esp/main/Kconfig.projbuild` -> `<projekt>/main/Kconfig.projbuild` (scalić, jeśli istnieje)
+
+2. **Opcjonalnie jako referencję** podejrzeć i zaadaptować fragmenty z:
+   - `widget_esp/main/widget_esp.c` (użycie `CONFIG_*`, tematy MQTT, format payloadów)
+
+3. Nie trzeba kopiować całego `widget_esp/` 1:1, jeżeli zespół ma własną logikę firmware.
+
+
 ## 5. Kontrakt MQTT
 
 ### 5.1. Status urządzenia (ESP32 -> serwer)
