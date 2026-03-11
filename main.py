@@ -140,6 +140,20 @@ async def websocket_endpoint(websocket: WebSocket):
                     device_manager.devices[device_id].status = new_status
                     print(f"Sent status command to {device_id}: {'ON' if new_status else 'OFF'} (Optimistic update)")
 
+            elif event_type == "device_command":
+                device_id = payload.get("device_id")
+                actuator = payload.get("actuator", "default")
+                value = payload.get("value")
+
+                command_payload = {
+                    "actuator": actuator,
+                    "value": value,
+                }
+
+                success = mqtt_service.publish_command(device_id, command_payload)
+                if success:
+                    print(f"Sent generic command to {device_id}: actuator={actuator}, value={value}")
+
             elif event_type == "start_session":
                 selected_ids = device_manager.get_selected_ids()
                 if not selected_ids:
