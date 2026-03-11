@@ -44,32 +44,44 @@ manager = ConnectionManager()
 def on_connect(client, userdata, flags, rc):
     print(f"Connected to MQTT broker with result code {rc}")
     client.subscribe("+/status")
-    print("Subscribed to +/status topics")
+    client.subscribe("+/sensor")
+    print("Subscribed to +/status and +/sensor topics")
 
 def on_message(client, userdata, msg):
     try:
         topic = msg.topic
-        device_id = topic.split("/")[0]
+        parts = topic.split("/")
+        device_id = parts[0]
+        subtopic = parts[1] if len(parts) > 1 else ""
         payload = json.loads(msg.payload.decode())
-        
-        device_status = payload.get("status", False)
-        charge_level = payload.get("charge_level", 0)
-        actuators = payload.get("actuators", []) 
-        emitters = payload.get("emitters", [])
 
         # Logika dodawania urządzeń
         if device_id not in device_data:
             selected_devices.add(device_id)
+            device_data[device_id] = {
+                "status": False,
+                "charge_level": 0,
+                "last_updated": datetime.now().isoformat(),
+                "topic": f"{device_id}/status",
+                "selected": True,
+                "actuators": [],
+                "emitters": [],
+                "sensors": {}
+            }
 
-        device_data[device_id] = {
-            "status": device_status,
-            "charge_level": charge_level,
-            "last_updated": datetime.now().isoformat(),
-            "topic": topic,
-            "selected": device_id in selected_devices,
-            "actuators": actuators, 
-            "emitters": emitters    
-        }
+        if subtopic == "status":
+            device_data[device_id].update({
+                "status": payload.get("status", False),
+                "charge_level": payload.get("charge_level", 0),
+                "last_updated": datetime.now().isoformat(),
+                "topic": topic,
+                "selected": device_id in selected_devices,
+                "actuators": payload.get("actuators", []),
+                "emitters": payload.get("emitters", [])
+            })
+        elif subtopic == "sensor":
+            device_data[device_id]["sensors"] = payload
+            device_data[device_id]["last_updated"] = datetime.now().isoformat()
 
         # Emitowanie przez WebSocket
         if main_event_loop and manager.active_connections:
@@ -247,6 +259,23 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Opcjonalnie: możemy zaktualizować lokalny stan
                 # ale lepiej poczekać na potwierdzenie z urządzenia przez status topic
                 
+            elif event_type == "component_command":
+                device_id = payload.get("device_id")
+                component_type = payload.get("component_type")  # "actuator" or "emitter"
+                name = payload.get("name")
+                state = payload.get("state", False)
+
+                if device_id and component_type and name:
+                    success = publish_device_command(
+                        device_id,
+                        f"{component_type}",
+                        {"name": name, "state": state}
+                    )
+                    if success:
+                        print(f"Sent {component_type} command to {device_id}: {name}={'ON' if state else 'OFF'}")
+                    else:
+                        print(f"Failed to send {component_type} command to {device_id}")
+
             elif event_type == "start_session":
                 session_active = True
                 print("Session started")

@@ -26,6 +26,7 @@ import {
 } from '@mui/icons-material';
 
 import DeviceItem from '../components/DeviceItem.jsx'
+import DeviceDetails from '../components/DeviceDetails.jsx'
 import Header from '../components/Header.jsx'
 
 const getTimestamp = () => new Date().toLocaleTimeString();
@@ -36,6 +37,8 @@ export default function App() {
   const [devices, setDevices] = useState({});
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [viewedDeviceId, setViewedDeviceId] = useState(null);
+  const [componentStates, setComponentStates] = useState({});
   
   const logEndRef = useRef(null);
 
@@ -164,6 +167,25 @@ export default function App() {
     }
   };
 
+  const handleDeviceClick = (deviceId) => {
+    setViewedDeviceId((prev) => (prev === deviceId ? null : deviceId));
+  };
+
+  const handleComponentCommand = (deviceId, componentType, name, state) => {
+    if (socket && isConnected) {
+      socket.send(JSON.stringify({
+        event: "component_command",
+        data: { device_id: deviceId, component_type: componentType, name, state }
+      }));
+    }
+    const key = `${componentType}:${name}`;
+    setComponentStates((prev) => ({
+      ...prev,
+      [deviceId]: { ...(prev[deviceId] || {}), [key]: state }
+    }));
+    addLog(`${deviceId} → ${componentType} ${name}: ${state ? 'ON' : 'OFF'}`);
+  };
+
   return (
     <Box sx={{ flexGrow: 1, height: '100vh', width:'100vw', display: 'flex', flexDirection: 'column', bgcolor: '#f5f5f5' }}>
       
@@ -192,12 +214,14 @@ export default function App() {
                   </Box>
                 ) : (
                   Object.keys(devices).map((deviceId) => (
-                    <DeviceItem 
-                      key={deviceId} 
-                      deviceId={deviceId} 
-                      data={devices[deviceId]} 
+                    <DeviceItem
+                      key={deviceId}
+                      deviceId={deviceId}
+                      data={devices[deviceId]}
                       onToggleSelect={handleDeviceSelect}
                       onToggleStatus={handleDeviceStatus}
+                      onSelect={handleDeviceClick}
+                      isViewed={viewedDeviceId === deviceId}
                     />
                   ))
                 )}
@@ -208,11 +232,15 @@ export default function App() {
           {/* Middle/Right Area */}
           <Grid item size={10} sx={{height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
             
-            {/* Graph / Main Workspace */}
+            {/* Device Detail / Graph Workspace */}
             <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#fafafa', m: 2, border: '2px dashed #ddd', borderRadius: 2 }}>
-                <Typography variant="h5" color="text.secondary">Graph Area</Typography>
-              </Box>
+              <DeviceDetails
+                deviceId={viewedDeviceId}
+                data={viewedDeviceId ? devices[viewedDeviceId] : null}
+                componentStates={viewedDeviceId ? componentStates[viewedDeviceId] : null}
+                onComponentCommand={handleComponentCommand}
+                onClose={() => setViewedDeviceId(null)}
+              />
               
               <Box p={2} borderTop={1} borderColor="divider" display="flex" justifyContent="center" gap={2}>
                 <Button 
