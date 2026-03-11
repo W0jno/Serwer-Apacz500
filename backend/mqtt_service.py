@@ -87,29 +87,62 @@ class MQTTService:
         )
         self._broadcast_async(message)
 
+
+    def _normalize_sensor_state(self, payload: dict) -> tuple[bool | None, Any, str]:
+        """Normalizes arbitrary emitter payloads into logical ON/OFF state.
+
+        Returns: (is_active, raw_value, emitter_id)
+        - is_active: True/False when value is recognized, otherwise None
+        - raw_value: original value used for normalization
+        - emitter_id: emitter name from payload or "default"
+        """
+        emitter_id = str(payload.get("emitter", "default"))
+        raw_value = payload.get("value", payload.get("sensor_value"))
+
+        if raw_value is None:
+            return None, None, emitter_id
+
+        if isinstance(raw_value, bool):
+            return raw_value, raw_value, emitter_id
+
+        if isinstance(raw_value, (int, float)):
+            return raw_value != 0, raw_value, emitter_id
+
+        if isinstance(raw_value, str):
+            text = raw_value.strip().lower()
+            if text in {"1", "true", "on", "pressed", "active", "high"}:
+                return True, raw_value, emitter_id
+            if text in {"0", "false", "off", "released", "inactive", "low"}:
+                return False, raw_value, emitter_id
+            return len(text) > 0, raw_value, emitter_id
+
+        return bool(raw_value), raw_value, emitter_id
+
     def _handle_sensor(self, device_id: str, payload: dict):
         if not self.session_manager.active:
             return
 
-        sensor_value = payload.get("sensor_value")
-        if sensor_value is None:
+        is_active, raw_value, emitter_id = self._normalize_sensor_state(payload)
+        if is_active is None:
             return
 
-        targets = []
-        action = ""
+        targets = self.session_manager.handle_emitter_event(device_id, emitter_id, is_active)
+        if not targets:
+            return
 
-        if sensor_value == 0:  # Pressed
-            print(f"Device {device_id} pressed. Evaluating connections...")
-            targets = self.session_manager.handle_button_press(device_id)
-            action = "ON"
-            payload_cmd = {"state": True}
-        
-        elif sensor_value == 1:  # Released
-            targets = self.session_manager.handle_button_release(device_id)
-            if targets:
-                print(f"Device {device_id} released. Deactivating connections...")
-            action = "OFF"
-            payload_cmd = {"state": False}
+        action = "ON" if is_active else "OFF"
+        if is_active:
+            print(f"Device {device_id} emitter '{emitter_id}' active (value={raw_value}). Evaluating connections...")
+        else:
+            print(f"Device {device_id} emitter '{emitter_id}' inactive (value={raw_value}). Deactivating connections...")
+
+        payload_cmd = {
+            "state": is_active,
+            "source_device": device_id,
+            "emitter": emitter_id,
+            "sensor_value": payload.get("sensor_value"),
+            "value": payload.get("value", payload.get("sensor_value")),
+        }
 
         for target_id in targets:
             print(f"  --> Triggering {target_id} {action}")
