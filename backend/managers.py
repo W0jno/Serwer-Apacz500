@@ -143,6 +143,8 @@ class SessionManager:
         self.active_connections: Dict[str, List[str]] = {}
         # Last known emitter state: "<source_id>:<emitter_id>" -> bool
         self.emitter_states: Dict[str, bool] = {}
+        # Last known emitter state: "<source_id>:<emitter_id>" -> bool
+        self.emitter_states: Dict[str, bool] = {}
 
     def start_session(self, selected_ids: List[str]) -> SessionMatrix:
         self.active = True

@@ -212,3 +212,35 @@
 1763933379: Client auto-A3428575-D8E7-A78E-ACCA-30A046FF4D1C closed its connection.
 1763933380: mosquitto version 2.0.22 terminating
 1763933380: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1773252584: mosquitto version 2.0.22 starting
+1773252584: Config loaded from /mosquitto/config/mosquitto.conf.
+1773252584: Opening ipv4 listen socket on port 1883.
+1773252584: Opening websockets listen socket on port 9001.
+1773252584: mosquitto version 2.0.22 running
+1773252584: New connection from 172.18.0.1:56938 on port 1883.
+1773252584: New client connected from 172.18.0.1:56938 as widget_01 (p2, c1, k15).
+1773252586: New connection from 172.18.0.3:50903 on port 1883.
+1773252586: New client connected from 172.18.0.3:50903 as auto-546FF881-4488-8E71-4EBA-188BC86D82BE (p2, c1, k60).
+1773252609: New connection from 172.18.0.1:52528 on port 1883.
+1773252609: Client widget_01 already connected, closing old connection.
+1773252609: New client connected from 172.18.0.1:52528 as widget_01 (p2, c1, k15).
+1773252825: New connection from 172.18.0.1:47886 on port 1883.
+1773252825: New client connected from 172.18.0.1:47886 as mqttx_825c455a (p5, c1, k60, u'Test').
+1773252851: Client mqttx_825c455a closed its connection.
+1773252879: Client auto-546FF881-4488-8E71-4EBA-188BC86D82BE closed its connection.
+1773252882: New connection from 172.18.0.3:46975 on port 1883.
+1773252882: New client connected from 172.18.0.3:46975 as auto-B4B0F145-F0A6-CB46-1363-BA4BCAC5204F (p2, c1, k60).
+1773252930: New connection from 172.18.0.1:37958 on port 1883.
+1773252930: New client connected from 172.18.0.1:37958 as mqttx_825c455a (p5, c1, k60, u'Test').
+1773253116: Client widget_01 has exceeded timeout, disconnecting.
+1773253116: New connection from 172.18.0.1:56908 on port 1883.
+1773253116: New client connected from 172.18.0.1:56908 as widget_01 (p2, c1, k15).
+1773253283: Client mqttx_825c455a has exceeded timeout, disconnecting.
+1773253288: New connection from 172.18.0.1:35170 on port 1883.
+1773253288: New client connected from 172.18.0.1:35170 as mqttx_825c455a (p5, c1, k60, u'Test').
+1773253697: Client auto-B4B0F145-F0A6-CB46-1363-BA4BCAC5204F closed its connection.
+1773253700: New connection from 172.18.0.3:51727 on port 1883.
+1773253700: New client connected from 172.18.0.3:51727 as auto-300AA25D-C568-53A1-F99B-CBE4352A99F7 (p2, c1, k60).
+1773253764: Client mqttx_825c455a has exceeded timeout, disconnecting.
+1773253769: New connection from 172.18.0.1:33614 on port 1883.
+1773253769: New client connected from 172.18.0.1:33614 as mqttx_825c455a (p5, c1, k60, u'Test').

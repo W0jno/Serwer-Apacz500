@@ -91,7 +91,7 @@ const DeviceItem = ({ deviceId, data, onToggleSelect, onToggleStatus, onSendComm
           control={
             <Checkbox checked={data.selected || false} onChange={(e) => onToggleSelect(deviceId, e.target.checked)} size="small" />
           }
-          label={<Typography variant="body2" color="text.secondary">Select for use in session</Typography>}
+          label={<Typography variant="body2" color="text.secondary">Select for session</Typography>}
         />
         <FormControlLabel
           control={<Checkbox checked={isOperational} onChange={(e) => onToggleStatus(deviceId, e.target.checked)} size="small" />}
