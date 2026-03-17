@@ -519,3 +519,69 @@ pio device monitor
 ```
 
 Szczegółowa instrukcja krok po kroku znajduje się w: `widget_arduino_dropin/README.md`.
+
+
+## 8. Zależności serwerowe (widget Y -> widget X)
+
+Serwer obsługuje reguły zależności: zdarzenie z emitera na urządzeniu źródłowym może automatycznie publikować payload na wskazany topic urządzenia docelowego.
+
+### 8.1. API reguł
+
+- `GET /api/dependencies` — lista reguł
+- `POST /api/dependencies` — dodanie reguły
+- `DELETE /api/dependencies/{rule_id}` — usunięcie reguły
+
+Payload `POST /api/dependencies`:
+
+```json
+{
+  "source_device_id": "widget_y",
+  "source_emitter": "button",
+  "trigger_state": "on",
+  "target_device_id": "widget_x",
+  "target_topic": "widget_x/command",
+  "payload": {
+    "command": "actuator",
+    "name": "lamp",
+    "state": true
+  },
+  "enabled": true
+}
+```
+
+Znaczenie pól:
+- `trigger_state`: `on`, `off` lub `any`.
+- `target_topic`: jeśli puste, serwer używa domyślnie `<target_device_id>/command`.
+- `payload`: dowolny JSON wysyłany na MQTT po spełnieniu warunku.
+
+### 8.2. Przykład scenariusza
+
+Cel: gdy `button` na `widget_y` zostanie naciśnięty (`on`), to `widget_x` ma zapalić lampkę.
+
+1. Tworzysz regułę API (jak wyżej).
+2. `widget_y` publikuje sensor na `widget_y/sensor`, np.:
+
+```json
+{
+  "device_id": "widget_y",
+  "emitter": "button",
+  "sensor_value": 1,
+  "value": 1
+}
+```
+
+3. Serwer publikuje na `widget_x/command` payload z reguły:
+
+```json
+{
+  "command": "actuator",
+  "name": "lamp",
+  "state": true,
+  "source_device": "widget_y",
+  "emitter": "button",
+  "sensor_value": 1,
+  "value": 1
+}
+```
+
+Metadane (`source_device`, `emitter`, `sensor_value`, `value`, `state`) są automatycznie uzupełniane, jeśli nie zostały podane w `payload` reguły.

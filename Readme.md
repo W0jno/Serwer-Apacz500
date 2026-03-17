@@ -52,3 +52,10 @@ Szczegóły konfiguracji LAN i portów są w `docs/widget_integration.md` (sekcj
 
 - Gotowy moduł: `widget_arduino_dropin/`
 - Instrukcja krok po kroku: `widget_arduino_dropin/README.md`
+
+
+## Zależności serwerowe między widgetami
+
+- Serwer obsługuje reguły typu: zdarzenie na widgecie Y -> akcja na widgecie X.
+- API: `GET/POST/DELETE /api/dependencies`.
+- Szczegóły i przykłady payloadów: `docs/widget_integration.md` (sekcja **8. Zależności serwerowe**).
