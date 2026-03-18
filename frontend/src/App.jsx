@@ -81,19 +81,15 @@ export default function App() {
     ws.onopen = () => {
       setIsConnected(true);
       addLog('Connected to server');
-      addLog('Connected to server');
       setLoading(false);
     };
 
     ws.onclose = () => {
       setIsConnected(false);
       addLog('Disconnected from server');
-      addLog('Disconnected from server');
     };
 
     ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      addLog('Connection error occurred');
       console.error('WebSocket error:', error);
       addLog('Connection error occurred');
       setIsConnected(false);
@@ -109,7 +105,6 @@ export default function App() {
             addLog(`Connection confirmed - Server time: ${data.server_time}`);
             break;
 
-
           case 'devices_data':
             setDevices(data);
             addLog(`Loaded ${Object.keys(data).length} devices`);
@@ -121,7 +116,6 @@ export default function App() {
               ...prev,
               [data.device_id]: data.data,
             }));
-            addLog(`${data.device_id}: ${data.data.status ? 'online' : 'offline'}, ${data.data.charge_level}%`);
             addLog(`${data.device_id}: ${data.data.status ? 'online' : 'offline'}, ${data.data.charge_level}%`);
             break;
 
@@ -148,23 +142,18 @@ export default function App() {
             addLog(`Dependency rules updated (${(data.rules || []).length})`);
             break;
 
-
           default:
-            console.log('Unknown event:', eventName);
             console.log('Unknown event:', eventName);
         }
       } catch (e) {
-        console.error('Error parsing message', e);
         console.error('Error parsing message', e);
       }
     };
 
     socketRef.current = ws;
-    socketRef.current = ws;
 
     return () => {
       ws.close();
-      socketRef.current = null;
       socketRef.current = null;
     };
   }, [addLog]);
@@ -274,24 +263,22 @@ export default function App() {
   };
 
   return (
-    <Box sx={{ flexGrow: 1, height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', bgcolor: '#f5f5f5' }}>
+    // Dodane: overflowY: 'auto' oraz overflowX: 'hidden' wymuszą pojawienie się suwaka
+    <Box sx={{ minHeight: '100vh', width: '100%', display: 'flex', flexDirection: 'column',bgcolor: 'transparent' }}>
       <Header isConnected={isConnected} />
 
-    <Box sx={{ flexGrow: 1, height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', bgcolor: '#f5f5f5' }}>
-      <Header isConnected={isConnected} />
-
-      <Container maxWidth={false} sx={{ flexGrow: 1, py: 2, overflow: 'hidden' }}>
-        <Grid container spacing={2} sx={{ height: '100%', width: '100%' }}>
-          <Grid item size={3} sx={{ height: '100%' }}>
-        <Grid container spacing={2} sx={{ height: '100%', width: '100%' }}>
-          <Grid item size={3} sx={{ height: '100%' }}>
-            <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <Container maxWidth={false} sx={{ py: 2, flexGrow: 1 }}>
+        <Grid container spacing={2}>
+          
+          {/* LEWY PANEL - Urządzenia */}
+          <Grid item size={3}>
+            <Paper sx={{ display: 'flex', flexDirection: 'column' }}>
               <Box p={2} borderBottom={1} borderColor="divider">
                 <Typography variant="h6">Devices</Typography>
               </Box>
 
-
-              <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, bgcolor: '#fafafa' }}>
+              {/* maxHeight pozwala liście urządzeń mieć własny mały scroll, by nie rozciągała strony w kosmos */}
+              <Box sx={{ overflowY: 'auto', maxHeight: '80vh', p: 2, bgcolor: '#fafafa' }}>
                 {loading ? (
                   <Box display="flex" flexDirection="column" alignItems="center" mt={4}>
                     <CircularProgress size={30} />
@@ -310,13 +297,8 @@ export default function App() {
                       key={deviceId}
                       deviceId={deviceId}
                       data={devices[deviceId]}
-                    <DeviceItem
-                      key={deviceId}
-                      deviceId={deviceId}
-                      data={devices[deviceId]}
                       onToggleSelect={handleDeviceSelect}
                       onToggleStatus={handleDeviceStatus}
-                      onSendCommand={handleDeviceCommand}
                       onSendCommand={handleDeviceCommand}
                     />
                   ))
@@ -325,12 +307,12 @@ export default function App() {
             </Paper>
           </Grid>
 
-          <Grid item size={9} sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Grid item size={9} sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* PRAWY PANEL */}
+          <Grid item size={9} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            
+            <Paper sx={{ display: 'flex', flexDirection: 'column' }}>
               <Box
                 sx={{
-                  flexGrow: 1,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -338,11 +320,11 @@ export default function App() {
                   m: 2,
                   border: '2px dashed #ddd',
                   borderRadius: 2,
+                  minHeight: 200
                 }}
               >
                 <SessionGraph graph={sessionGraph} />
               </Box>
-
 
               <Box p={2} borderTop={1} borderColor="divider" display="flex" justifyContent="center" gap={2}>
                 <Button
@@ -450,14 +432,14 @@ export default function App() {
               </Stack>
             </Paper>
 
-            <Paper sx={{ height: '200px', display: 'flex', flexDirection: 'column' }}>
+            <Paper sx={{ display: 'flex', flexDirection: 'column' }}>
               <Box p={1} px={2} borderBottom={1} borderColor="divider" bgcolor="#f8f9fa">
                 <Typography variant="subtitle2">Connection Log</Typography>
               </Box>
-              <List dense sx={{ flexGrow: 1, overflowY: 'auto', bgcolor: '#fafafa', fontFamily: 'monospace' }}>
+              {/* Tutaj też dajemy maxHeight, by logi miały własny scroll, jeśli będzie ich za dużo */}
+              <List dense sx={{ overflowY: 'auto', minHeight: '200px', maxHeight: '500px', bgcolor: '#fafafa', fontFamily: 'monospace' }}>
                 {logs.map((log, index) => (
                   <ListItem key={index} sx={{ py: 0 }}>
-                    <ListItemText
                     <ListItemText
                       primary={
                         <Typography variant="body2" component="span" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
@@ -467,17 +449,16 @@ export default function App() {
                           {log.message}
                         </Typography>
                       }
-                      }
                     />
                   </ListItem>
                 ))}
                 <div ref={logEndRef} />
               </List>
             </Paper>
+
           </Grid>
         </Grid>
       </Container>
     </Box>
   );
 }
-
